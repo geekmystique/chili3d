@@ -96,6 +96,11 @@ export class DependencyGraph {
         return new Set(this._dependents.get(id));
     }
 
+    /** Nodes `id` depends on directly (one hop only, not transitively). */
+    getDirectDependencies(id: string): Set<string> {
+        return new Set(this._dependsOn.get(id));
+    }
+
     /** Every node `id` transitively depends on, directly or through others. */
     getAllDependencies(id: string): Set<string> {
         return this.collectUpstream(id);

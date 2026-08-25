@@ -12,6 +12,8 @@ rs.mock("../src/timeline/timelineTrack.module.css", () => ({
     track: "tt-track",
     selected: "tt-selected",
     related: "tt-related",
+    contextMenu: "tt-context-menu",
+    contextMenuItem: "tt-context-menu-item",
 }));
 
 rs.mock("../src/timeline/timelineItem.module.css", () => ({
@@ -25,7 +27,11 @@ rs.mock("../src/project/tree/treeItem.module.css", () => ({
 }));
 
 // Mock core: GeometryNode marker for instanceof checks, immediate Transaction, no-op Binding
-import { pubSubPubs } from "./_helpers/mockCoreTimeline";
+import {
+    pubSubPubs,
+    removeFromReferenceChainCalls,
+    setRemoveFromReferenceChainResult,
+} from "./_helpers/mockCoreTimeline";
 
 // Mock element helpers
 import "./_helpers/mockElement";
@@ -382,6 +388,122 @@ describe("TimelineTrack", () => {
         });
     });
 
+    describe("context menu", () => {
+        interface EditableFixture {
+            doc: ReturnType<typeof makeDoc>;
+            model2: MockEditableNode;
+            track: TimelineTrack;
+        }
+
+        let editFixture: EditableFixture | undefined;
+
+        function createEditableFixture(): EditableFixture {
+            const model1 = new MockNode("Box");
+            const model2 = new MockEditableNode("Fillet");
+            model1.nextSibling = model2 as unknown as MockNode;
+            const root = { firstChild: model1, nextSibling: undefined };
+
+            const doc = makeDoc(root);
+            (doc.visual as unknown as { update: () => void }).update = rs.fn();
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            return { doc, model2, track };
+        }
+
+        function rightClick(el: HTMLElement) {
+            el.dispatchEvent(
+                new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 20 }),
+            );
+        }
+
+        beforeEach(() => {
+            fixture = undefined as unknown as Fixture;
+            editFixture = undefined;
+            pubSubPubs.length = 0;
+            removeFromReferenceChainCalls.length = 0;
+            setRemoveFromReferenceChainResult(true);
+        });
+
+        afterEach(() => {
+            editFixture?.track.remove();
+            editFixture?.track.dispose();
+            document.body.querySelectorAll(".tt-context-menu").forEach((el) => el.remove());
+            document.body.innerHTML = "";
+        });
+
+        test("should select the node and open the menu for a reference feature", () => {
+            editFixture = createEditableFixture();
+            const item2 = editFixture.track.children[1] as HTMLElement;
+
+            rightClick(item2);
+
+            expect(editFixture.doc.selection.setSelectedNodes).toHaveBeenCalledWith(
+                [editFixture.model2],
+                false,
+            );
+            expect(document.body.querySelector(".tt-context-menu")).not.toBeNull();
+        });
+
+        test("should prevent the browser's own context menu", () => {
+            editFixture = createEditableFixture();
+            const item2 = editFixture.track.children[1] as HTMLElement;
+            const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+
+            item2.dispatchEvent(event);
+
+            expect(event.defaultPrevented).toBe(true);
+        });
+
+        test("should ignore a plain (non-reference) node", () => {
+            fixture = createFixture();
+            const item1 = fixture.track.children[0] as HTMLElement;
+
+            rightClick(item1);
+
+            expect(fixture.doc.selection.setSelectedNodes).not.toHaveBeenCalled();
+            expect(document.body.querySelector(".tt-context-menu")).toBeNull();
+        });
+
+        test("should ignore a right-click that doesn't hit an item", () => {
+            editFixture = createEditableFixture();
+
+            rightClick(editFixture.track);
+
+            expect(document.body.querySelector(".tt-context-menu")).toBeNull();
+        });
+
+        test("clicking Delete should call removeFromReferenceChain, close the menu, and update the visual", () => {
+            editFixture = createEditableFixture();
+            const item2 = editFixture.track.children[1] as HTMLElement;
+            rightClick(item2);
+
+            const deleteItem = document.body.querySelector(".tt-context-menu-item") as unknown as {
+                _onclick: () => void;
+            };
+            deleteItem._onclick();
+
+            expect(removeFromReferenceChainCalls).toHaveLength(1);
+            expect(removeFromReferenceChainCalls[0][1]).toBe(editFixture.model2);
+            expect(document.body.querySelector(".tt-context-menu")).toBeNull();
+            expect(editFixture.doc.visual.update).toHaveBeenCalledTimes(1);
+        });
+
+        test("should show a blocked toast and not update the visual when removeFromReferenceChain refuses", () => {
+            setRemoveFromReferenceChainResult(false);
+            editFixture = createEditableFixture();
+            const item2 = editFixture.track.children[1] as HTMLElement;
+            rightClick(item2);
+
+            const deleteItem = document.body.querySelector(".tt-context-menu-item") as unknown as {
+                _onclick: () => void;
+            };
+            deleteItem._onclick();
+
+            expect(pubSubPubs).toContainEqual({ topic: "showToast", args: ["toast.deleteFeature.blocked"] });
+            expect(editFixture.doc.visual.update).not.toHaveBeenCalled();
+        });
+    });
+
     describe("dependency highlighting", () => {
         let chainFixture: ChainFixture;
 
@@ -449,6 +571,25 @@ describe("TimelineTrack", () => {
             expect(fixture.track.querySelectorAll("timeline-item").length).toBe(0);
 
             fixture = undefined as unknown as Fixture;
+        });
+
+        test("should close an open context menu", () => {
+            const model1 = new MockNode("Box");
+            const model2 = new MockEditableNode("Fillet");
+            model1.nextSibling = model2 as unknown as MockNode;
+            const root = { firstChild: model1, nextSibling: undefined };
+            const doc = makeDoc(root);
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+
+            const item2 = track.children[1] as HTMLElement;
+            item2.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+            expect(document.body.querySelector(".tt-context-menu")).not.toBeNull();
+
+            track.remove();
+            track.dispose();
+
+            expect(document.body.querySelector(".tt-context-menu")).toBeNull();
         });
     });
 });

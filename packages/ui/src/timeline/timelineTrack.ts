@@ -6,10 +6,15 @@ import {
     type IDocument,
     type INode,
     type INodeLinkedList,
+    Localize,
     type NodeRecord,
     PubSub,
     ReferenceShapeNode,
+    removeFromReferenceChain,
+    Transaction,
 } from "@chili3d/core";
+import { div, label } from "@chili3d/element";
+import { DropdownController } from "../ribbon/dropdownController";
 import { TimelineItem } from "./timelineItem";
 import style from "./timelineTrack.module.css";
 
@@ -22,6 +27,7 @@ import style from "./timelineTrack.module.css";
  */
 export class TimelineTrack extends HTMLElement {
     private readonly nodeMap = new Map<GeometryNode, TimelineItem>();
+    private readonly contextMenu = new DropdownController(style.contextMenu);
 
     constructor(private document: IDocument) {
         super();
@@ -37,6 +43,7 @@ export class TimelineTrack extends HTMLElement {
         this.document.selection.onNodeChanged.sub(this.handleSelectionChanged);
         this.addEventListener("click", this.onClick);
         this.addEventListener("dblclick", this.onDoubleClick);
+        this.addEventListener("contextmenu", this.onContextMenu);
     }
 
     disconnectedCallback(): void {
@@ -44,9 +51,11 @@ export class TimelineTrack extends HTMLElement {
         this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("dblclick", this.onDoubleClick);
+        this.removeEventListener("contextmenu", this.onContextMenu);
     }
 
     dispose(): void {
+        this.contextMenu.dispose();
         this.nodeMap.forEach((item) => {
             item.dispose();
         });
@@ -157,6 +166,41 @@ export class TimelineTrack extends HTMLElement {
         this.document.selection.setSelectedNodes([node], false);
         PubSub.default.pub("executeCommand", commandKey);
     };
+
+    /** Right-clicking a feature offers to delete it out of the chain - see removeFromReferenceChain. */
+    private readonly onContextMenu = (event: MouseEvent) => {
+        const item = this.getTimelineItem(event.target as HTMLElement | null);
+        if (!item || !(item.node instanceof ReferenceShapeNode)) return;
+        event.preventDefault();
+        const node = item.node;
+        this.document.selection.setSelectedNodes([node], false);
+        this.contextMenu.openAt(event.clientX, event.clientY, (menu) => {
+            menu.append(
+                div(
+                    {
+                        className: style.contextMenuItem,
+                        onclick: () => {
+                            this.contextMenu.close();
+                            this.deleteFeature(node);
+                        },
+                    },
+                    label({ textContent: new Localize("timeline.deleteFeature") }),
+                ),
+            );
+        });
+    };
+
+    private deleteFeature(node: ReferenceShapeNode) {
+        let removed = false;
+        Transaction.execute(this.document, "delete feature", () => {
+            removed = removeFromReferenceChain(this.document, node);
+        });
+        if (!removed) {
+            PubSub.default.pub("showToast", "toast.deleteFeature.blocked");
+            return;
+        }
+        this.document.visual.update();
+    }
 
     private getTimelineItem(el: HTMLElement | null): TimelineItem | undefined {
         if (!el) return undefined;

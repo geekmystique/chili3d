@@ -92,12 +92,30 @@ export class DropdownController {
     open(anchor: HTMLElement, buildItems: (dropdown: HTMLElement) => void): void {
         if (this.#isOpened) return;
 
+        const dropdown = this.#build(buildItems);
+        this.#position(dropdown, anchor);
+        this.#show(dropdown);
+    }
+
+    /** Open at a fixed viewport point instead of anchored to an element - for a right-click context menu. */
+    openAt(x: number, y: number, buildItems: (dropdown: HTMLElement) => void): void {
+        if (this.#isOpened) return;
+
+        const dropdown = this.#build(buildItems);
+        dropdown.style.top = `${y}px`;
+        dropdown.style.left = `${x}px`;
+        this.#show(dropdown);
+    }
+
+    #build(buildItems: (dropdown: HTMLElement) => void): HTMLElement {
         DropdownController.closeAll();
         const dropdown = div({ className: this.#containerClass });
         buildItems(dropdown);
-
         document.body.appendChild(dropdown);
-        this.#position(dropdown, anchor);
+        return dropdown;
+    }
+
+    #show(dropdown: HTMLElement): void {
         this.#dropdown = dropdown;
         this.#isOpened = true;
         DropdownController.openedDropdowns.add(this);

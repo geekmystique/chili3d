@@ -18,19 +18,48 @@ const recorder = rs.hoisted(() => {
 /** Records topic/args passed to `PubSub.default.pub`. */
 export const pubSubPubs = recorder.pubs;
 
+/**
+ * Spy standing in for the real removeFromReferenceChain - the timeline's
+ * context-menu delete handler is tested for its own wiring (calls it inside
+ * a Transaction with the right node, reacts to its return value) here; the
+ * healing algorithm itself is covered against real ReferenceShapeNode
+ * subclasses in core/test/shapeNode.test.ts.
+ */
+const removeChainRecorder = rs.hoisted(() => {
+    const calls: unknown[][] = [];
+    let result = true;
+    return {
+        calls,
+        fn: (...args: unknown[]) => {
+            calls.push(args);
+            return result;
+        },
+        setResult: (r: boolean) => {
+            result = r;
+        },
+    };
+});
+
+export const removeFromReferenceChainCalls = removeChainRecorder.calls;
+export function setRemoveFromReferenceChainResult(result: boolean) {
+    removeChainRecorder.setResult(result);
+}
+
 rs.mock("@chili3d/core", () => {
     const actual = rs.hoisted(() => require("@chili3d/core"));
-    const { BindingMock, TransactionMock } = rs.hoisted(() => require("./coreMocks"));
+    const { BindingMock, TransactionMock, LocalizeMock } = rs.hoisted(() => require("./coreMocks"));
     class VisualNode {}
     class GeometryNode extends VisualNode {}
     class ReferenceShapeNode extends GeometryNode {}
     return {
         ...actual,
         Binding: BindingMock,
+        Localize: LocalizeMock,
         Transaction: TransactionMock,
         PubSub: recorder.stub,
         VisualNode,
         GeometryNode,
         ReferenceShapeNode,
+        removeFromReferenceChain: removeChainRecorder.fn,
     };
 });

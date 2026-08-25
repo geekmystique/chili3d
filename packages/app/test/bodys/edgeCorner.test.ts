@@ -182,6 +182,15 @@ describe("EdgeCornerNode", () => {
         });
     });
 
+    describe("primaryInputId", () => {
+        test("should be the baseNodeId", () => {
+            setupShapeFactoryMock({ fillet: () => Result.ok(createMockShape()) });
+            const node = makeNode("fillet", 5);
+
+            expect(node.primaryInputId).toBe(baseNode.id);
+        });
+    });
+
     describe("updateSelection", () => {
         test("should replace edgeIndexes/value and recompute once, against the new inputs", () => {
             const calls: unknown[][] = [];

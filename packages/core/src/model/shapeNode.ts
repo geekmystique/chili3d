@@ -254,6 +254,19 @@ export abstract class ReferenceShapeNode extends ParameterShapeNode implements I
         return false;
     }
 
+    /**
+     * The node id this feature would collapse back into if it were deleted -
+     * its own single "main" input (a fillet's base, an extrude's section, a
+     * boolean's base). removeFromReferenceChain redirects this node's own
+     * dependents there. The default is undefined - no single unambiguous
+     * input - which makes removeFromReferenceChain refuse to delete a node
+     * that still has dependents, rather than leave any of them pointing at a
+     * missing id.
+     */
+    get primaryInputId(): string | undefined {
+        return undefined;
+    }
+
     protected resolveInput(id: string): ShapeNode | undefined {
         const node = this.document.modelManager.findNode((n) => n.id === id);
         return node instanceof ShapeNode ? node : undefined;
@@ -309,6 +322,50 @@ export function spliceIntoReferenceChain(
 
     if (spliced) newNode.visible = false;
     return spliced;
+}
+
+/**
+ * Remove `node` from the chain, closing the gap: anything that referenced
+ * `node` directly gets redirected to `node.primaryInputId` (its own single
+ * main input) so those features keep working, and whichever of `node`'s own
+ * inputs end up with no dependent left becomes visible again - nothing is
+ * consuming it any more. This is the inverse of spliceIntoReferenceChain,
+ * for deleting a feature out of the middle of a chain (or off the end of
+ * one) rather than adding one.
+ *
+ * Refuses - returns false, without mutating anything - when `node` has
+ * dependents but no primaryInputId to redirect them to (the base
+ * ReferenceShapeNode default, for a node with several genuinely alternative
+ * inputs and no single natural successor). `node` itself is removed through
+ * the ordinary undo-tracked remove(), not disposed, so undoing this restores
+ * it exactly like undoing any other deletion.
+ */
+export function removeFromReferenceChain(document: IDocument, node: ReferenceShapeNode): boolean {
+    const graph = document.modelManager.dependencyGraph;
+    const dependentIds = graph ? [...graph.getDirectDependents(node.id)] : [];
+    const primaryId = node.primaryInputId;
+
+    if (dependentIds.length > 0 && primaryId === undefined) return false;
+
+    dependentIds.forEach((id) => {
+        const dependent = document.modelManager.findNode((n) => n.id === id);
+        if (dependent instanceof ReferenceShapeNode) dependent.redirectReference(node.id, primaryId!);
+    });
+
+    const upstreamIds = graph ? [...graph.getDirectDependencies(node.id)] : [];
+    node.parent?.remove(node);
+
+    upstreamIds.forEach((id) => {
+        // The graph edge from `node` to `id` is left in place (node isn't
+        // disposed, so undo can restore it exactly) - ignore it here so a
+        // now-unused input isn't kept hidden by its own removed dependent.
+        const stillNeeded = graph && [...graph.getDirectDependents(id)].some((depId) => depId !== node.id);
+        if (stillNeeded) return;
+        const upstream = document.modelManager.findNode((n) => n.id === id);
+        if (upstream instanceof ShapeNode) upstream.visible = true;
+    });
+
+    return true;
 }
 
 export interface EditableShapeNodeOptions {

@@ -73,6 +73,16 @@ export class BooleanNode extends ReferenceShapeNode {
         return changed;
     }
 
+    /**
+     * The base, not a tool - deleting a boolean is closer to "undo modifying
+     * the base" than to "undo consuming a tool", so anything downstream
+     * picks up the base directly. The tool(s) simply become unconsumed and
+     * visible again, same as any other now-unused input.
+     */
+    override get primaryInputId(): string | undefined {
+        return this.baseNodeId;
+    }
+
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.baseNodeId);
         if (!base) return Result.err(`Boolean: base shape "${this.baseNodeId}" no longer exists`);

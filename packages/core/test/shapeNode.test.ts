@@ -1,7 +1,7 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { type IShape, type IShapeMeshData, Matrix4, Result } from "../src";
+import { type IDocument, type IShape, type IShapeMeshData, Matrix4, Result } from "../src";
 import * as ShapeNodeClasses from "../src/model/shapeNode";
 import { createMockDocument, MockShape, TestDocument } from "../test-utils";
 
@@ -331,6 +331,11 @@ describe("shapeNode", () => {
             const ref = new TestReferenceNode(doc, base.id);
             expect(ref.redirectReference(base.id, "some-other-id")).toBe(false);
         });
+
+        test("primaryInputId should be undefined by default", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.primaryInputId).toBeUndefined();
+        });
     });
 
     describe("spliceIntoReferenceChain", () => {
@@ -433,6 +438,201 @@ describe("shapeNode", () => {
             }).not.toThrow();
 
             expect(spliced).toBe(false);
+        });
+    });
+
+    describe("removeFromReferenceChain", () => {
+        /** A ReferenceShapeNode with a single, redirectable base reference - primaryInputId is that base. */
+        class RedirectableReferenceNode extends ShapeNodeClasses.ReferenceShapeNode {
+            baseId: string;
+
+            constructor(document: IDocument, baseId: string) {
+                super({ document });
+                this.baseId = baseId;
+            }
+
+            display(): any {
+                return "test.redirectable";
+            }
+
+            generateShape(): Result<IShape> {
+                const base = this.resolveInput(this.baseId);
+                if (!base) return Result.err("base not found");
+                if (!base.shape.isOk) return Result.err(base.shape.error);
+                this.subscribeTo([base]);
+                return Result.ok(base.shape.value);
+            }
+
+            override redirectReference(oldId: string, newId: string): boolean {
+                if (this.baseId !== oldId) return false;
+                this.baseId = newId;
+                this.shape = this.generateShape();
+                return true;
+            }
+
+            override get primaryInputId(): string | undefined {
+                return this.baseId;
+            }
+        }
+
+        /** A ReferenceShapeNode depending on two inputs (like BooleanNode) - primaryInputId is only the first. */
+        class TwoInputReferenceNode extends ShapeNodeClasses.ReferenceShapeNode {
+            constructor(
+                document: TestDocument,
+                public primaryId: string,
+                public secondaryId: string,
+            ) {
+                super({ document });
+            }
+
+            display(): any {
+                return "test.twoInput";
+            }
+
+            generateShape(): Result<IShape> {
+                const primary = this.resolveInput(this.primaryId);
+                const secondary = this.resolveInput(this.secondaryId);
+                if (!primary || !secondary) return Result.err("input not found");
+                if (!primary.shape.isOk) return primary.shape.parse();
+                if (!secondary.shape.isOk) return secondary.shape.parse();
+                this.subscribeTo([primary, secondary]);
+                return Result.ok(primary.shape.value);
+            }
+
+            override get primaryInputId(): string | undefined {
+                return this.primaryId;
+            }
+        }
+
+        /** A ReferenceShapeNode with no natural single successor - primaryInputId stays undefined. */
+        class AmbiguousReferenceNode extends ShapeNodeClasses.ReferenceShapeNode {
+            constructor(
+                document: TestDocument,
+                public idA: string,
+                public idB: string,
+            ) {
+                super({ document });
+            }
+
+            display(): any {
+                return "test.ambiguous";
+            }
+
+            generateShape(): Result<IShape> {
+                const a = this.resolveInput(this.idA);
+                const b = this.resolveInput(this.idB);
+                if (!a || !b) return Result.err("input not found");
+                if (!a.shape.isOk) return a.shape.parse();
+                if (!b.shape.isOk) return b.shape.parse();
+                this.subscribeTo([a, b]);
+                return Result.ok(a.shape.value);
+            }
+        }
+
+        let base: ShapeNodeClasses.EditableShapeNode;
+
+        beforeEach(() => {
+            base = new ShapeNodeClasses.EditableShapeNode({ document: doc, name: "base", shape: mockShape });
+            doc.modelManager.rootNode.add(base);
+        });
+
+        test("should remove a leaf feature (no dependents) and re-show its now-unconsumed input", () => {
+            base.visible = false;
+            const feature = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(feature);
+            expect(feature.shape.isOk).toBe(true); // establishes base -> feature
+
+            const removed = ShapeNodeClasses.removeFromReferenceChain(doc, feature);
+
+            expect(removed).toBe(true);
+            expect(base.visible).toBe(true);
+            expect((feature as any).parent).toBeUndefined();
+        });
+
+        test("should redirect a dependent to primaryInputId and keep the input hidden", () => {
+            base.visible = false;
+            const feature = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(feature);
+            expect(feature.shape.isOk).toBe(true);
+
+            const dependent = new RedirectableReferenceNode(doc, feature.id);
+            doc.modelManager.rootNode.add(dependent);
+            expect(dependent.shape.isOk).toBe(true); // establishes feature -> dependent
+
+            const removed = ShapeNodeClasses.removeFromReferenceChain(doc, feature);
+
+            expect(removed).toBe(true);
+            expect(dependent.baseId).toBe(base.id);
+            expect(dependent.shape.value).toBe(base.shape.value);
+            // base still feeds dependent - stays hidden, not resurrected.
+            expect(base.visible).toBe(false);
+        });
+
+        test("should re-show only the input(s) left with no remaining dependent", () => {
+            const otherBase = new ShapeNodeClasses.EditableShapeNode({
+                document: doc,
+                name: "other",
+                shape: new MockShape(),
+            });
+            otherBase.visible = false;
+            doc.modelManager.rootNode.add(otherBase);
+            base.visible = false;
+
+            const feature = new TwoInputReferenceNode(doc, base.id, otherBase.id);
+            doc.modelManager.rootNode.add(feature);
+            expect(feature.shape.isOk).toBe(true);
+
+            // Something else still depends on `base` directly - it must stay hidden;
+            // `otherBase` has nothing else depending on it and should come back.
+            const dependent = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(dependent);
+            expect(dependent.shape.isOk).toBe(true);
+
+            const removed = ShapeNodeClasses.removeFromReferenceChain(doc, feature);
+
+            expect(removed).toBe(true);
+            expect(base.visible).toBe(false);
+            expect(otherBase.visible).toBe(true);
+        });
+
+        test("should refuse - and mutate nothing - when a dependent exists but primaryInputId is undefined", () => {
+            const otherBase = new ShapeNodeClasses.EditableShapeNode({
+                document: doc,
+                name: "other",
+                shape: new MockShape(),
+            });
+            doc.modelManager.rootNode.add(otherBase);
+
+            const feature = new AmbiguousReferenceNode(doc, base.id, otherBase.id);
+            doc.modelManager.rootNode.add(feature);
+            expect(feature.shape.isOk).toBe(true);
+
+            const dependent = new RedirectableReferenceNode(doc, feature.id);
+            doc.modelManager.rootNode.add(dependent);
+            expect(dependent.shape.isOk).toBe(true);
+
+            const removed = ShapeNodeClasses.removeFromReferenceChain(doc, feature);
+
+            expect(removed).toBe(false);
+            expect(dependent.baseId).toBe(feature.id); // untouched
+            expect((feature as any).parent).not.toBeUndefined(); // not removed
+        });
+
+        test("should remove a feature with no dependents even with no DependencyGraph", () => {
+            const docWithoutGraph = createMockDocument({
+                modelManager: { dependencyGraph: undefined } as any,
+            });
+            const feature = new RedirectableReferenceNode(docWithoutGraph, base.id);
+            const removedFrom: unknown[] = [];
+            (feature as any).parent = { remove: (n: unknown) => removedFrom.push(n) };
+
+            let removed: boolean | undefined;
+            expect(() => {
+                removed = ShapeNodeClasses.removeFromReferenceChain(docWithoutGraph, feature);
+            }).not.toThrow();
+
+            expect(removed).toBe(true);
+            expect(removedFrom).toContain(feature);
         });
     });
 });

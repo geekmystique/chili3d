@@ -214,6 +214,15 @@ describe("BooleanNode", () => {
         });
     });
 
+    describe("primaryInputId", () => {
+        test("should be the baseNodeId, not a tool", () => {
+            setupShapeFactoryMock({ booleanFuse: () => Result.ok(createMockShape()) });
+            const node = makeNode("fuse");
+
+            expect(node.primaryInputId).toBe(baseNode.id);
+        });
+    });
+
     describe("serialization", () => {
         test("should round-trip operateType/baseNodeId/toolNodeIds", () => {
             const node = makeNode("common");

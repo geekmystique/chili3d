@@ -93,6 +93,10 @@ export class EdgeCornerNode extends ReferenceShapeNode {
         return true;
     }
 
+    override get primaryInputId(): string | undefined {
+        return this.baseNodeId;
+    }
+
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.baseNodeId);
         if (!base) {

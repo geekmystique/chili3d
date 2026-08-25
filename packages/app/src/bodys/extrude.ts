@@ -97,6 +97,10 @@ export class ExtrudeNode extends ReferenceShapeNode {
         return true;
     }
 
+    override get primaryInputId(): string | undefined {
+        return this.sectionNodeId;
+    }
+
     /**
      * The base node's own shape, or - when sectionIndex is set - the
      * sub-shape at that index within it. Sub-shape indexes are positions

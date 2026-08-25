@@ -99,6 +99,15 @@ describe("ExtrudeNode", () => {
         });
     });
 
+    describe("primaryInputId", () => {
+        test("should be the sectionNodeId", () => {
+            setupShapeFactoryMock({ prism: () => Result.ok(createMockShape() as any) });
+            const node = makeNode(10);
+
+            expect(node.primaryInputId).toBe(baseNode.id);
+        });
+    });
+
     describe("setters", () => {
         test("setting length should update value and regenerate the shape", () => {
             const prism = rs.fn(() => Result.ok(createMockShape() as any));
