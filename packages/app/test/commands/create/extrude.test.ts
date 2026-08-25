@@ -1,15 +1,24 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { type IShape, ShapeTypes, XYZ } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    type ShapeType,
+    ShapeTypes,
+    XYZ,
+} from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
 import { ExtrudeNode } from "../../../src/bodys/extrude";
 import { ExtrudeCommand } from "../../../src/commands/create/extrude";
 import {
     ensureGlobalStubApp,
+    mockShape,
     pointStepResult,
     seedStepDatas,
     shapeStepResult,
+    type TrackingParent,
     wireCommand,
 } from "../commandTestUtils";
 
@@ -34,7 +43,7 @@ describe("ExtrudeCommand", () => {
     });
 
     describe("geometryNode", () => {
-        test("should build an ExtrudeNode whose length is the signed projection of the picked point", () => {
+        test("should build an ExtrudeNode referencing the picked node, whose length is the signed projection of the picked point", () => {
             // Face on the XY plane: normal() returns [point, +Z].
             const cmd = new ExtrudeCommand();
             wireCommand(cmd);
@@ -45,6 +54,7 @@ describe("ExtrudeCommand", () => {
                             shapeType: ShapeTypes.face,
                             normal: () => [XYZ.zero, XYZ.unitZ],
                         } as Partial<IShape>,
+                        node: { id: "rect-1" },
                         point: XYZ.zero,
                     },
                 ]),
@@ -54,6 +64,9 @@ describe("ExtrudeCommand", () => {
             const node = (cmd as any).geometryNode();
             expect(node).toBeInstanceOf(ExtrudeNode);
             expect(node.length).toBeCloseTo(5, 6);
+            expect(node.sectionNodeId).toBe("rect-1");
+            expect(node.sectionShapeType).toBeUndefined();
+            expect(node.sectionIndex).toBeUndefined();
         });
 
         test("should produce a negative length when the picked point is below the section plane", () => {
@@ -67,6 +80,7 @@ describe("ExtrudeCommand", () => {
                             normal: () => [XYZ.zero, XYZ.unitZ],
                             isClosed: () => false,
                         } as Partial<IShape>,
+                        node: { id: "rect-1" },
                         point: XYZ.zero,
                     },
                 ]),
@@ -75,6 +89,76 @@ describe("ExtrudeCommand", () => {
 
             const node = (cmd as any).geometryNode();
             expect(node.length).toBeCloseTo(-3, 6);
+        });
+
+        test("should reference the sub-shape's type and index when the pick is a face of an existing solid", () => {
+            const cmd = new ExtrudeCommand();
+            wireCommand(cmd);
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    {
+                        shape: {
+                            shapeType: ShapeTypes.face,
+                            normal: () => [XYZ.zero, XYZ.unitZ],
+                            index: 2,
+                        } as any,
+                        node: { id: "solid-1" },
+                        point: XYZ.zero,
+                    },
+                ]),
+                pointStepResult({ point: new XYZ({ x: 0, y: 0, z: 5 }) }),
+            ]);
+
+            const node = (cmd as any).geometryNode();
+            expect(node.sectionNodeId).toBe("solid-1");
+            expect(node.sectionShapeType).toBe(ShapeTypes.face);
+            expect(node.sectionIndex).toBe(2);
+        });
+    });
+
+    describe("afterNodeCreated", () => {
+        function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
+            const shape = mockShape({ shapeType });
+            return new EditableShapeNode({
+                document: doc,
+                name: "rect",
+                shape: shape as unknown as IShape,
+                materialId: "mat-1",
+            });
+        }
+
+        test("should hide, not delete, the whole-shape source node when deleteObjects is true", () => {
+            const cmd = new ExtrudeCommand();
+            const { doc } = wireCommand(cmd);
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const sectionNode = liveSectionNode(doc, ShapeTypes.wire);
+            sectionNode.parent = parent;
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.wire } as Partial<IShape>, node: sectionNode },
+                ]),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(sectionNode.visible).toBe(false);
+            expect(parent.removed).toHaveLength(0);
+        });
+
+        test("should leave the source node untouched when deleteObjects is false", () => {
+            const cmd = new ExtrudeCommand();
+            cmd.deleteObjects = false;
+            const { doc } = wireCommand(cmd);
+            const sectionNode = liveSectionNode(doc, ShapeTypes.wire);
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.wire } as Partial<IShape>, node: sectionNode },
+                ]),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(sectionNode.visible).toBe(true);
         });
     });
 

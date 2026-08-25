@@ -3,7 +3,7 @@
 
 import { EditableShapeNode, type IDocument, Result, type ShapeType, ShapeTypes, XYZ } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
-import { ExtrudeCommand } from "../../src/commands/create/extrude";
+import { Sweep } from "../../src/commands/create/sweep";
 import { selectedWholeShapeNodes } from "../../src/commands/createCommand";
 import {
     ensureGlobalStubApp,
@@ -30,7 +30,7 @@ function shapeNode(document: IDocument, shapeType: ShapeType) {
 
 describe("selectedWholeShapeNodes", () => {
     test("should return the node when the selected shape type matches the node shape type", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         const { doc } = wireCommand(cmd);
         const node = shapeNode(doc, ShapeTypes.edge);
         const datas = [shapeStepResult([{ shape: { shapeType: ShapeTypes.edge }, node, point: XYZ.zero }])];
@@ -39,7 +39,7 @@ describe("selectedWholeShapeNodes", () => {
     });
 
     test("should exclude the node when a sub-shape type was selected", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         const { doc } = wireCommand(cmd);
         const node = shapeNode(doc, ShapeTypes.solid);
         const datas = [shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node, point: XYZ.zero }])];
@@ -54,7 +54,7 @@ describe("selectedWholeShapeNodes", () => {
     });
 
     test("should deduplicate nodes selected in multiple steps", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         const { doc } = wireCommand(cmd);
         const node = shapeNode(doc, ShapeTypes.wire);
         const datas = [
@@ -68,12 +68,12 @@ describe("selectedWholeShapeNodes", () => {
 
 describe("CreateFromSelectionCommand", () => {
     test("deleteObjects should default to true", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         expect(cmd.deleteObjects).toBe(true);
     });
 
     test("afterNodeCreated should remove matched nodes from their parents", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         const { doc } = wireCommand(cmd);
         const matched = shapeNode(doc, ShapeTypes.edge);
         const matchedParent = makeParent();
@@ -95,7 +95,7 @@ describe("CreateFromSelectionCommand", () => {
     });
 
     test("afterNodeCreated should keep all nodes when deleteObjects is false", () => {
-        const cmd = new ExtrudeCommand();
+        const cmd = new Sweep();
         const { doc } = wireCommand(cmd);
         cmd.deleteObjects = false;
         const node = shapeNode(doc, ShapeTypes.edge);

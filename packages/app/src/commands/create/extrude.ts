@@ -8,15 +8,17 @@ import {
     type IFace,
     type IShape,
     type IStep,
+    type ISubShape,
     type LengthAtAxisSnapData,
     LengthAtAxisStep,
     Precision,
     SelectShapeStep,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
 } from "@chili3d/core";
 import { closedProfileToFace, ExtrudeNode } from "../../bodys";
-import { CreateFromSelectionCommand } from "../createCommand";
+import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCommand";
 
 @command({
     key: "create.extrude",
@@ -24,10 +26,33 @@ import { CreateFromSelectionCommand } from "../createCommand";
 })
 export class ExtrudeCommand extends CreateFromSelectionCommand {
     protected override geometryNode(): GeometryNode {
+        const pick = this.stepDatas[0].shapes[0];
         const shape = this.transformdFirstShape(this.stepDatas[0], false);
         const { point, normal } = this.getAxis(shape);
         const dist = this.stepDatas[1].point!.sub(point).dot(normal);
-        return new ExtrudeNode({ document: this.document, section: shape, length: dist });
+
+        const sub = pick.shape as Partial<ISubShape>;
+        return new ExtrudeNode({
+            document: this.document,
+            sectionNodeId: (pick.owner.node as ShapeNode).id,
+            sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
+            sectionIndex: sub.index,
+            length: dist,
+        });
+    }
+
+    /**
+     * Hide rather than delete the source node(s) - ExtrudeNode keeps a live
+     * reference to whichever one it was picked from, so deleting it would
+     * break that reference. Sub-shape picks (a face of an existing solid)
+     * are excluded by selectedWholeShapeNodes, so that solid stays visible.
+     */
+    protected override afterNodeCreated(): void {
+        if (this.deleteObjects) {
+            selectedWholeShapeNodes(this.stepDatas).forEach((node) => {
+                node.visible = false;
+            });
+        }
     }
 
     protected override getSteps(): IStep[] {
