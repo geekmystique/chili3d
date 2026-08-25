@@ -19,6 +19,7 @@ import {
     Transaction,
     type VisualShapeData,
 } from "@chili3d/core";
+import { EdgeCornerNode, type EdgeCornerOperateType } from "../../bodys/edgeCorner";
 
 const SOLID_PARENT_TYPES: ShapeType[] = [ShapeTypes.solid, ShapeTypes.compound, ShapeTypes.compoundSolid];
 const PLANAR_PARENT_TYPES: ShapeType[] = [ShapeTypes.face, ShapeTypes.wire, ShapeTypes.edge];
@@ -116,8 +117,11 @@ function spliceCornerEdges(allEdges: IEdge[], corner: OrderedCorner, triple: IEd
  * `applyTo*` methods.
  */
 export abstract class EdgeCornerCommand extends MultistepCommand {
-    /** Apply the operation to the selected edges of a solid or compound. */
-    protected abstract applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape>;
+    /** "fillet" or "chamfer" - which EdgeCornerNode operation a solid/compound edit produces. */
+    protected abstract get operateType(): EdgeCornerOperateType;
+
+    /** The configured radius (fillet) or distance (chamfer) for a solid/compound edit. */
+    protected abstract get cornerValue(): number;
 
     /** Apply the operation to the corner between two edges of a face. */
     protected abstract applyToFace(face: IFace, edge1: IEdge, edge2: IEdge): Result<IShape>;
@@ -141,7 +145,13 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
 
     private modifyNode(shapes: VisualShapeData[], parent: IShape) {
         const node = shapes[0].owner.node as ShapeNode;
-        const newShape = this.computeNewShape(shapes, parent, node);
+
+        if (!isPlanarParent(parent)) {
+            this.modifyBodyNode(shapes, node);
+            return;
+        }
+
+        const newShape = this.computePlanarShape(shapes, parent);
         if (!newShape.isOk) {
             PubSub.default.pub("displayError", newShape.error);
             return;
@@ -150,13 +160,31 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
         replaceShapeNode(node, newShape.value);
     }
 
-    private computeNewShape(shapes: VisualShapeData[], parent: IShape, node: ShapeNode): Result<IShape> {
-        if (isPlanarParent(parent)) {
-            return this.computePlanarShape(shapes, parent);
+    /**
+     * A solid/compound edit becomes a live EdgeCornerNode referencing `node`
+     * by id, rather than a baked shape - editing `node`'s own parameters
+     * later recomputes this feature. `node` is hidden, not deleted, so the
+     * reference stays resolvable.
+     */
+    private modifyBodyNode(shapes: VisualShapeData[], node: ShapeNode) {
+        const edgeIndexes = shapes.map((x) => (x.shape as ISubEdgeShape).index);
+        const featureNode = new EdgeCornerNode({
+            document: this.document,
+            operateType: this.operateType,
+            baseNodeId: node.id,
+            edgeIndexes,
+            value: this.cornerValue,
+        });
+
+        if (!featureNode.shape.isOk) {
+            PubSub.default.pub("displayError", featureNode.shape.error);
+            featureNode.dispose();
+            return;
         }
 
-        const edgeIndexes = shapes.map((x) => (x.shape as ISubEdgeShape).index);
-        return this.applyToBody(node.shape.value, edgeIndexes);
+        (node.parent ?? this.document.modelManager.rootNode).add(featureNode);
+        node.visible = false;
+        this.document.visual.update();
     }
 
     private computePlanarShape(shapes: VisualShapeData[], parent: IShape): Result<IShape> {

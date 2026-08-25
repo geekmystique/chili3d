@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import { command, type IEdge, type IFace, type IShape, property, type Result } from "@chili3d/core";
+import type { EdgeCornerOperateType } from "../../bodys/edgeCorner";
 import { EdgeCornerCommand } from "./edgeCornerCommand";
 
 @command({
@@ -18,8 +19,12 @@ export class ChamferCommand extends EdgeCornerCommand {
         this.setProperty("length", value);
     }
 
-    protected override applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape> {
-        return shapeFactory.chamfer(shape, edgeIndexes, this.length);
+    protected override get operateType(): EdgeCornerOperateType {
+        return "chamfer";
+    }
+
+    protected override get cornerValue(): number {
+        return this.length;
     }
 
     protected override applyToFace(face: IFace, edge1: IEdge, edge2: IEdge): Result<IShape> {

@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import { command, type IEdge, type IFace, type IShape, property, type Result } from "@chili3d/core";
+import type { EdgeCornerOperateType } from "../../bodys/edgeCorner";
 import { EdgeCornerCommand } from "./edgeCornerCommand";
 
 @command({
@@ -18,8 +19,12 @@ export class FilletCommand extends EdgeCornerCommand {
         this.setProperty("radius", value);
     }
 
-    protected override applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape> {
-        return shapeFactory.fillet(shape, edgeIndexes, this.radius);
+    protected override get operateType(): EdgeCornerOperateType {
+        return "fillet";
+    }
+
+    protected override get cornerValue(): number {
+        return this.radius;
     }
 
     protected override applyToFace(face: IFace, edge1: IEdge, edge2: IEdge): Result<IShape> {

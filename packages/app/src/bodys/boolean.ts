@@ -5,10 +5,9 @@ import {
     type I18nKeys,
     type IDocument,
     type IShape,
-    ParameterShapeNode,
-    type PropertyChangedHandler,
+    ReferenceShapeNode,
     Result,
-    ShapeNode,
+    type ShapeNode,
     serializable,
     serialize,
 } from "@chili3d/core";
@@ -30,7 +29,7 @@ export interface BooleanOptions {
  * rather than delete them - so the reference keeps resolving.
  */
 @serializable()
-export class BooleanNode extends ParameterShapeNode {
+export class BooleanNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.bolean";
     }
@@ -49,8 +48,6 @@ export class BooleanNode extends ParameterShapeNode {
     get toolNodeIds(): string[] {
         return this.getPrivateValue("toolNodeIds");
     }
-
-    private readonly _subscribed = new Set<ShapeNode>();
 
     constructor(options: BooleanOptions) {
         super(options);
@@ -95,32 +92,5 @@ export class BooleanNode extends ParameterShapeNode {
                 s.dispose();
             });
         }
-    }
-
-    /** Recompute whenever a referenced node's own shape changes. */
-    private readonly onInputChanged: PropertyChangedHandler<ShapeNode, keyof ShapeNode> = (property) => {
-        if (property !== "shape") return;
-        this.shape = this.generateShape();
-    };
-
-    private subscribeTo(nodes: ShapeNode[]) {
-        nodes.forEach((node) => {
-            if (this._subscribed.has(node)) return;
-            this._subscribed.add(node);
-            node.onPropertyChanged(this.onInputChanged);
-        });
-    }
-
-    private resolveInput(id: string): ShapeNode | undefined {
-        const node = this.document.modelManager.findNode((n) => n.id === id);
-        return node instanceof ShapeNode ? node : undefined;
-    }
-
-    override disposeInternal(): void {
-        this._subscribed.forEach((node) => {
-            node.removePropertyChanged(this.onInputChanged);
-        });
-        this._subscribed.clear();
-        super.disposeInternal();
     }
 }

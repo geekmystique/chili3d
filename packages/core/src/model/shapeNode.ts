@@ -3,7 +3,7 @@
 
 import { VisualConfig } from "../config";
 import type { IDocument } from "../document";
-import { type IEqualityComparer, Logger, PubSub, Result } from "../foundation";
+import { type IEqualityComparer, Logger, type PropertyChangedHandler, PubSub, Result } from "../foundation";
 import { I18n, type I18nKeys } from "../i18n";
 import { Matrix4 } from "../math";
 import { property } from "../property";
@@ -211,6 +211,47 @@ export abstract class ParameterShapeNode extends ShapeNode {
     }
 
     protected abstract generateShape(): Result<IShape>;
+}
+
+/**
+ * A ParameterShapeNode whose generateShape() resolves other nodes by id
+ * instead of holding a baked shape. `resolveInput` looks a node up through
+ * the document (so it works whether the reference was set from a live node
+ * at construction time, or from a plain id restored during deserialization,
+ * when the referenced node may not exist yet at construction time but does
+ * by the time the shape is first read). `subscribeTo` recomputes this node
+ * whenever a resolved input's own shape changes, so edits to an upstream
+ * body - or another reference node further upstream - propagate downstream
+ * automatically.
+ */
+export abstract class ReferenceShapeNode extends ParameterShapeNode {
+    private readonly _subscribed = new Set<ShapeNode>();
+
+    protected resolveInput(id: string): ShapeNode | undefined {
+        const node = this.document.modelManager.findNode((n) => n.id === id);
+        return node instanceof ShapeNode ? node : undefined;
+    }
+
+    protected subscribeTo(nodes: ShapeNode[]) {
+        nodes.forEach((node) => {
+            if (this._subscribed.has(node)) return;
+            this._subscribed.add(node);
+            node.onPropertyChanged(this.onInputChanged);
+        });
+    }
+
+    private readonly onInputChanged: PropertyChangedHandler<ShapeNode, keyof ShapeNode> = (property) => {
+        if (property !== "shape") return;
+        this.shape = this.generateShape();
+    };
+
+    override disposeInternal(): void {
+        this._subscribed.forEach((node) => {
+            node.removePropertyChanged(this.onInputChanged);
+        });
+        this._subscribed.clear();
+        super.disposeInternal();
+    }
 }
 
 export interface EditableShapeNodeOptions {

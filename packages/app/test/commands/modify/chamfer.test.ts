@@ -1,7 +1,16 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Matrix4, PubSub, Result, type ShapeType, ShapeTypes } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Matrix4,
+    PubSub,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+} from "@chili3d/core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
 import { ChamferCommand } from "../../../src/commands/modify/chamfer";
 import {
@@ -21,23 +30,25 @@ beforeAll(() => {
 });
 afterAll(() => restoreApp());
 
-function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType } = {}) {
+function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType; liveNode?: boolean } = {}) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-    const solidNode = {
-        name: "solid0",
-        document: doc,
-        shape: { value: shape },
-        transform: Matrix4.identity(),
-        materialId: "mat-1",
-        parent,
-        previousSibling: undefined,
-        nextSibling: undefined,
-    };
+    const solidNode: any = opts.liveNode
+        ? liveSolidNode(doc, shape as unknown as IShape, parent)
+        : {
+              name: "solid0",
+              document: doc,
+              shape: { value: shape },
+              transform: Matrix4.identity(),
+              materialId: "mat-1",
+              parent,
+              previousSibling: undefined,
+              nextSibling: undefined,
+          };
 
     const step = shapeStepResult(
         edges.map((index) => ({ shape: { index, parent: body } as Partial<MockShape>, node: solidNode })),
@@ -45,6 +56,19 @@ function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType } = {
 
     seedStepDatas(cmd, [step]);
     return { cmd, doc, parent, shape, body, solidNode };
+}
+
+/**
+ * A real EditableShapeNode standing in for the chamfer target on the 3D-body
+ * path: EdgeCornerNode is a ReferenceShapeNode, so it resolves its base node
+ * through `document.modelManager.findNode` rather than the passed-in object,
+ * and needs a real `instanceof ShapeNode` to satisfy that lookup.
+ */
+function liveSolidNode(doc: IDocument, shape: IShape, parent: TrackingParent) {
+    const node = new EditableShapeNode({ document: doc, name: "solid0", shape, materialId: "mat-1" });
+    node.parent = parent;
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) => [node].find(predicate);
+    return node;
 }
 
 /** A parent shape of the given type whose `isPartner` only matches itself. */
@@ -367,28 +391,29 @@ describe("ChamferCommand", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should add the chamfered EditableShapeNode and remove the original node", () => {
-            const { cmd, parent } = buildChamferCommand([3, 7]);
+        test("should add the chamfer as a live EdgeCornerNode and hide the original", () => {
+            const { cmd, parent, solidNode } = buildChamferCommand([3, 7], { liveNode: true });
 
             (cmd as any).executeMainTask();
 
             expect(parent.added).toHaveLength(1);
-            expect(parent.removed).toHaveLength(1);
+            expect(parent.removed).toHaveLength(0); // hidden, not removed - the reference needs it
 
             const added = parent.added[0] as any;
-            expect(added.name).toBe("solid0");
-            expect(added.materialId).toBe("mat-1");
+            expect(added.baseNodeId).toBe(solidNode.id);
+            expect(added.edgeIndexes).toEqual([3, 7]);
+            expect(solidNode.visible).toBe(false);
         });
 
         test("should fall back to rootNode when the original node has no parent", () => {
-            const { cmd, solidNode } = buildChamferCommand([1]);
+            const { cmd, solidNode } = buildChamferCommand([1], { liveNode: true });
             (solidNode as any).parent = undefined;
 
             expect(() => (cmd as any).executeMainTask()).not.toThrow();
         });
 
         test("should pass the configured length through to shapeFactory.chamfer", () => {
-            const { cmd } = buildChamferCommand([2]);
+            const { cmd } = buildChamferCommand([2], { liveNode: true });
             cmd.length = 8;
 
             const { calls, restore } = captureFactory();
@@ -524,7 +549,7 @@ describe("ChamferCommand", () => {
         });
 
         test("should report the factory error and keep the original node on failure", () => {
-            const { cmd, parent } = buildChamferCommand([3, 7]);
+            const { cmd, parent, solidNode } = buildChamferCommand([3, 7], { liveNode: true });
 
             const factory = captureFactory({ chamfer: () => Result.err("boom") });
             const pubsub = capturePubSub();
@@ -535,7 +560,7 @@ describe("ChamferCommand", () => {
                     true,
                 );
                 expect(parent.added).toHaveLength(0);
-                expect(parent.removed).toHaveLength(0);
+                expect(solidNode.visible).toBe(true);
             } finally {
                 pubsub.restore();
                 factory.restore();
@@ -571,7 +596,10 @@ describe("ChamferCommand", () => {
         });
 
         test("should treat a compound of solids as 3D", () => {
-            const { cmd, body } = buildChamferCommand([3, 7], { bodyType: ShapeTypes.compound });
+            const { cmd, body } = buildChamferCommand([3, 7], {
+                bodyType: ShapeTypes.compound,
+                liveNode: true,
+            });
             cmd.length = 6;
             (body as any).findSubShapes = (type: ShapeType) =>
                 type === ShapeTypes.solid ? [mockShape({ shapeType: ShapeTypes.solid })] : [];

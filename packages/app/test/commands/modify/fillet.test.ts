@@ -1,7 +1,16 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Matrix4, PubSub, Result, type ShapeType, ShapeTypes } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Matrix4,
+    PubSub,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+} from "@chili3d/core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
 import { FilletCommand } from "../../../src/commands/modify/fillet";
 import {
@@ -27,23 +36,25 @@ afterAll(() => restoreApp());
  * is a ShapeNode-ish stub. Returns the command plus the node's tracking parent
  * so callers can assert what was added / removed from the document tree.
  */
-function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType } = {}) {
+function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType; liveNode?: boolean } = {}) {
     const cmd = new FilletCommand();
     const { doc } = wireCommand(cmd);
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-    const solidNode = {
-        name: "solid0",
-        document: doc,
-        shape: { value: shape },
-        transform: Matrix4.identity(),
-        materialId: "mat-1",
-        parent,
-        previousSibling: undefined,
-        nextSibling: undefined,
-    };
+    const solidNode: any = opts.liveNode
+        ? liveSolidNode(doc, shape as unknown as IShape, parent)
+        : {
+              name: "solid0",
+              document: doc,
+              shape: { value: shape },
+              transform: Matrix4.identity(),
+              materialId: "mat-1",
+              parent,
+              previousSibling: undefined,
+              nextSibling: undefined,
+          };
 
     const step = shapeStepResult(
         edges.map((index) => ({ shape: { index, parent: body } as Partial<MockShape>, node: solidNode })),
@@ -51,6 +62,19 @@ function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType } = {}
 
     seedStepDatas(cmd, [step]);
     return { cmd, doc, parent, shape, body, solidNode };
+}
+
+/**
+ * A real EditableShapeNode standing in for the fillet target on the 3D-body
+ * path: EdgeCornerNode is a ReferenceShapeNode, so it resolves its base node
+ * through `document.modelManager.findNode` rather than the passed-in object,
+ * and needs a real `instanceof ShapeNode` to satisfy that lookup.
+ */
+function liveSolidNode(doc: IDocument, shape: IShape, parent: TrackingParent) {
+    const node = new EditableShapeNode({ document: doc, name: "solid0", shape, materialId: "mat-1" });
+    node.parent = parent;
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) => [node].find(predicate);
+    return node;
 }
 
 /** A parent shape of the given type whose `isPartner` only matches itself. */
@@ -373,25 +397,24 @@ describe("FilletCommand", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should add the filleted EditableShapeNode and remove the original node", () => {
-            const { cmd, parent, shape } = buildFilletCommand([3, 7]);
+        test("should add the fillet as a live EdgeCornerNode and hide the original", () => {
+            const { cmd, parent, shape, solidNode } = buildFilletCommand([3, 7], { liveNode: true });
 
             (cmd as any).executeMainTask();
 
-            // shapeFactory.fillet(node.shape.value, edges, radius) was called.
-            expect(shape.calls.get("transformedMul")).toBeUndefined(); // fillet does not transform the source
+            // shapeFactory.fillet(node.shape.value, edges, radius) was called directly - no transform.
+            expect(shape.calls.get("transformedMul")).toBeUndefined();
             expect(parent.added).toHaveLength(1);
-            expect(parent.removed).toHaveLength(1);
+            expect(parent.removed).toHaveLength(0); // hidden, not removed - the reference needs it
 
             const added = parent.added[0] as any;
-            expect(added.name).toBe("solid0");
-            expect(added.materialId).toBe("mat-1");
-            // The original node was removed.
-            expect(parent.removed[0]).toBe(parent.removed[0]);
+            expect(added.baseNodeId).toBe(solidNode.id);
+            expect(added.edgeIndexes).toEqual([3, 7]);
+            expect(solidNode.visible).toBe(false);
         });
 
         test("should fall back to rootNode when the original node has no parent", () => {
-            const { cmd, solidNode } = buildFilletCommand([1]);
+            const { cmd, solidNode } = buildFilletCommand([1], { liveNode: true });
             // Detach the node so `node.parent ?? rootNode` is exercised.
             (solidNode as any).parent = undefined;
 
@@ -399,7 +422,7 @@ describe("FilletCommand", () => {
         });
 
         test("should pass the configured radius through to shapeFactory.fillet", () => {
-            const { cmd } = buildFilletCommand([2]);
+            const { cmd } = buildFilletCommand([2], { liveNode: true });
             cmd.radius = 5;
 
             const { calls, restore } = captureFactory();
@@ -535,7 +558,7 @@ describe("FilletCommand", () => {
         });
 
         test("should report the factory error and keep the original node on failure", () => {
-            const { cmd, parent } = buildFilletCommand([3, 7]);
+            const { cmd, parent, solidNode } = buildFilletCommand([3, 7], { liveNode: true });
 
             const factory = captureFactory({ fillet: () => Result.err("boom") });
             const pubsub = capturePubSub();
@@ -546,7 +569,7 @@ describe("FilletCommand", () => {
                     true,
                 );
                 expect(parent.added).toHaveLength(0);
-                expect(parent.removed).toHaveLength(0);
+                expect(solidNode.visible).toBe(true);
             } finally {
                 pubsub.restore();
                 factory.restore();
@@ -582,7 +605,10 @@ describe("FilletCommand", () => {
         });
 
         test("should treat a compound of solids as 3D", () => {
-            const { cmd, body } = buildFilletCommand([3, 7], { bodyType: ShapeTypes.compound });
+            const { cmd, body } = buildFilletCommand([3, 7], {
+                bodyType: ShapeTypes.compound,
+                liveNode: true,
+            });
             cmd.radius = 6;
             (body as any).findSubShapes = (type: ShapeType) =>
                 type === ShapeTypes.solid ? [mockShape({ shapeType: ShapeTypes.solid })] : [];
