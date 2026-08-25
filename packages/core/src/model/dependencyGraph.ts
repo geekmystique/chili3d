@@ -1,0 +1,140 @@
+// Part of the Chili3d Project, under the AGPL-3.0 License.
+// See LICENSE file in the project root for full license information.
+
+export interface IGraphNode {
+    readonly id: string;
+    /** Recompute this node's own output. Called once its dependencies are up to date. */
+    recompute(): void;
+}
+
+/**
+ * Tracks "depends on" edges between shape nodes, keyed by node id, and
+ * recomputes a changed node's transitive dependents - once each, in
+ * dependency order - the same DAG-recompute pattern FreeCAD's document
+ * object graph uses for its feature tree.
+ *
+ * This replaces a naive per-node onPropertyChanged subscription: with two
+ * nodes feeding a shared dependent (e.g. a boolean feeding into another
+ * boolean), a subscription-based approach recomputes the shared dependent
+ * once per changed input - twice for one edit that touches both - and the
+ * first of those recomputes runs against a still-stale sibling. Propagating
+ * from a single entry point lets the whole affected subgraph be ordered
+ * and each node recomputed exactly once, always against already-updated
+ * inputs.
+ */
+export class DependencyGraph {
+    private readonly _dependsOn = new Map<string, Set<string>>();
+    private readonly _dependents = new Map<string, Set<string>>();
+    private readonly _nodes = new Map<string, IGraphNode>();
+    private _activePass = false;
+
+    /** Replace `node`'s full set of dependencies with `dependsOnIds`. */
+    setDependencies(node: IGraphNode, dependsOnIds: string[]) {
+        this._nodes.set(node.id, node);
+        this.clearDependencies(node.id);
+
+        const deps = new Set(dependsOnIds);
+        this._dependsOn.set(node.id, deps);
+        deps.forEach((depId) => {
+            let dependents = this._dependents.get(depId);
+            if (!dependents) {
+                dependents = new Set();
+                this._dependents.set(depId, dependents);
+            }
+            dependents.add(node.id);
+        });
+    }
+
+    /** Drop `id` from the graph entirely - its own dependencies and its entry as a dependency of others. */
+    removeNode(id: string) {
+        this.clearDependencies(id);
+        this._dependents.delete(id);
+        this._nodes.delete(id);
+    }
+
+    private clearDependencies(id: string) {
+        const previous = this._dependsOn.get(id);
+        previous?.forEach((depId) => this._dependents.get(depId)?.delete(id));
+        this._dependsOn.delete(id);
+    }
+
+    /**
+     * Recompute every transitive dependent of `changedId`, once each, in
+     * dependency order. Re-entrant calls made while a pass is already
+     * running (a dependent's own recompute() changing its shape, which the
+     * running pass already scheduled) are no-ops: anything downstream of a
+     * node already inside the current affected set is, transitively, also
+     * inside it.
+     */
+    propagate(changedId: string) {
+        if (this._activePass) return;
+
+        const affected = this.collectDownstream(changedId);
+        if (affected.size === 0) return;
+
+        const order = this.topologicalOrder(affected);
+        this._activePass = true;
+        try {
+            order.forEach((id) => {
+                this._nodes.get(id)?.recompute();
+            });
+        } finally {
+            this._activePass = false;
+        }
+    }
+
+    private collectDownstream(startId: string): Set<string> {
+        const affected = new Set<string>();
+        const queue = [startId];
+        while (queue.length > 0) {
+            const id = queue.shift() as string;
+            this._dependents.get(id)?.forEach((dependentId) => {
+                if (affected.has(dependentId)) return;
+                affected.add(dependentId);
+                queue.push(dependentId);
+            });
+        }
+        return affected;
+    }
+
+    /** Kahn's algorithm restricted to `affected`, ordering only by edges within that set. */
+    private topologicalOrder(affected: Set<string>): string[] {
+        const inDegree = new Map<string, number>();
+        affected.forEach((id) => {
+            const deps = this._dependsOn.get(id);
+            let count = 0;
+            deps?.forEach((depId) => {
+                if (affected.has(depId)) count++;
+            });
+            inDegree.set(id, count);
+        });
+
+        const queue: string[] = [];
+        inDegree.forEach((count, id) => {
+            if (count === 0) queue.push(id);
+        });
+
+        const order: string[] = [];
+        while (queue.length > 0) {
+            const id = queue.shift() as string;
+            order.push(id);
+            this._dependents.get(id)?.forEach((dependentId) => {
+                if (!affected.has(dependentId)) return;
+                const remaining = (inDegree.get(dependentId) ?? 0) - 1;
+                inDegree.set(dependentId, remaining);
+                if (remaining === 0) queue.push(dependentId);
+            });
+        }
+
+        if (order.length < affected.size) {
+            // A cycle isn't reachable through the current UI (nothing lets a feature
+            // reference something created after it), but recompute what's left rather
+            // than silently dropping it if one ever slips through.
+            affected.forEach((id) => {
+                if (!order.includes(id)) order.push(id);
+            });
+        }
+
+        return order;
+    }
+}

@@ -3,6 +3,7 @@
 
 import {
     BoundingBox,
+    DependencyGraph,
     type History,
     type I18nKeys,
     type IApplication,
@@ -116,6 +117,7 @@ export function createMockDocument(overrides: MockDocumentOverrides = {}): IDocu
         addNode: () => {},
         getChildren: () => [],
         notifyNodeChanged: () => {},
+        dependencyGraph: new DependencyGraph(),
         dispose: () => {},
         ...overrides.modelManager,
     } as unknown as ModelManager;

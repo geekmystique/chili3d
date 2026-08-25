@@ -3,7 +3,7 @@
 
 import { VisualConfig } from "../config";
 import type { IDocument } from "../document";
-import { type IEqualityComparer, Logger, type PropertyChangedHandler, PubSub, Result } from "../foundation";
+import { type IEqualityComparer, Logger, PubSub, Result } from "../foundation";
 import { I18n, type I18nKeys } from "../i18n";
 import { Matrix4 } from "../math";
 import { property } from "../property";
@@ -17,6 +17,7 @@ import {
     type VertexMeshData,
 } from "../shape";
 import { MeshUtils } from "../shape/meshUtils";
+import type { IGraphNode } from "./dependencyGraph";
 import { GeometryNode } from "./geometryNode";
 
 const SHAPE_UNDEFINED = "Shape not initialized";
@@ -51,6 +52,10 @@ export abstract class ShapeNode extends GeometryNode {
 
         this._mesh = undefined;
         this.setProperty("shape", shape);
+        // Optional chain: some test documents stand in a plain modelManager
+        // object without a real DependencyGraph. Production documents always
+        // have one.
+        this.document.modelManager.dependencyGraph?.propagate(this.id);
     }
 
     protected override createMesh(): IShapeMeshData {
@@ -219,37 +224,31 @@ export abstract class ParameterShapeNode extends ShapeNode {
  * the document (so it works whether the reference was set from a live node
  * at construction time, or from a plain id restored during deserialization,
  * when the referenced node may not exist yet at construction time but does
- * by the time the shape is first read). `subscribeTo` recomputes this node
- * whenever a resolved input's own shape changes, so edits to an upstream
- * body - or another reference node further upstream - propagate downstream
- * automatically.
+ * by the time the shape is first read). `subscribeTo` registers those ids
+ * with the document's DependencyGraph, which recomputes this node whenever
+ * a resolved input's own shape changes - directly, or several hops further
+ * upstream - so edits propagate downstream automatically.
  */
-export abstract class ReferenceShapeNode extends ParameterShapeNode {
-    private readonly _subscribed = new Set<ShapeNode>();
-
+export abstract class ReferenceShapeNode extends ParameterShapeNode implements IGraphNode {
     protected resolveInput(id: string): ShapeNode | undefined {
         const node = this.document.modelManager.findNode((n) => n.id === id);
         return node instanceof ShapeNode ? node : undefined;
     }
 
     protected subscribeTo(nodes: ShapeNode[]) {
-        nodes.forEach((node) => {
-            if (this._subscribed.has(node)) return;
-            this._subscribed.add(node);
-            node.onPropertyChanged(this.onInputChanged);
-        });
+        this.document.modelManager.dependencyGraph?.setDependencies(
+            this,
+            nodes.map((n) => n.id),
+        );
     }
 
-    private readonly onInputChanged: PropertyChangedHandler<ShapeNode, keyof ShapeNode> = (property) => {
-        if (property !== "shape") return;
+    /** Called by the DependencyGraph once this node's dependencies are up to date. */
+    recompute(): void {
         this.shape = this.generateShape();
-    };
+    }
 
     override disposeInternal(): void {
-        this._subscribed.forEach((node) => {
-            node.removePropertyChanged(this.onInputChanged);
-        });
-        this._subscribed.clear();
+        this.document.modelManager.dependencyGraph?.removeNode(this.id);
         super.disposeInternal();
     }
 }

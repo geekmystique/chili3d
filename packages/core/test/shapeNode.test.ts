@@ -257,4 +257,69 @@ describe("shapeNode", () => {
             expect(node.display()).toBe("body.editableShape");
         });
     });
+
+    describe("ReferenceShapeNode", () => {
+        class TestReferenceNode extends ShapeNodeClasses.ReferenceShapeNode {
+            constructor(
+                document: TestDocument,
+                readonly baseId: string,
+            ) {
+                super({ document });
+            }
+
+            display(): any {
+                return "test.referenceShape";
+            }
+
+            generateShape(): Result<IShape> {
+                const base = this.resolveInput(this.baseId);
+                if (!base) return Result.err("base not found");
+                if (!base.shape.isOk) return Result.err(base.shape.error);
+                this.subscribeTo([base]);
+                return Result.ok(base.shape.value);
+            }
+        }
+
+        let base: ShapeNodeClasses.EditableShapeNode;
+
+        beforeEach(() => {
+            base = new ShapeNodeClasses.EditableShapeNode({
+                document: doc,
+                name: "base",
+                shape: mockShape,
+            });
+            doc.modelManager.rootNode.add(base);
+        });
+
+        test("should resolve the base node's shape through resolveInput", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.shape.isOk).toBe(true);
+            expect(ref.shape.value).toBe(mockShape);
+        });
+
+        test("should return an error when the base id doesn't resolve", () => {
+            const ref = new TestReferenceNode(doc, "missing-id");
+            expect(ref.shape.isOk).toBe(false);
+        });
+
+        test("should recompute when the base node's shape changes", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.shape.isOk).toBe(true); // triggers the initial subscribeTo
+
+            const newShape = new MockShape();
+            base.shape = Result.ok(newShape);
+
+            expect(ref.shape.value).toBe(newShape);
+        });
+
+        test("should stop recomputing once disposed", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.shape.isOk).toBe(true);
+
+            ref.dispose();
+            expect(() => {
+                base.shape = Result.ok(new MockShape());
+            }).not.toThrow();
+        });
+    });
 });

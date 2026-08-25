@@ -12,6 +12,7 @@ import {
 } from "./foundation";
 import type { Material } from "./material";
 import type { Component } from "./model/component";
+import { DependencyGraph } from "./model/dependencyGraph";
 import { FolderNode } from "./model/folderNode";
 import { type INode, type INodeLinkedList, NodeUtils } from "./model/node";
 import { type Serialized, Serializer } from "./serialize";
@@ -23,6 +24,7 @@ export class ModelManager extends Observable {
 
     readonly components: ObservableCollection<Component> = new ObservableCollection();
     readonly materials: ObservableCollection<Material> = new ObservableCollection();
+    readonly dependencyGraph = new DependencyGraph();
 
     private _rootNode: INodeLinkedList | undefined;
     get rootNode(): INodeLinkedList {
