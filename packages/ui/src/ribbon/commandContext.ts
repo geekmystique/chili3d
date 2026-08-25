@@ -91,7 +91,13 @@ export class CommandContext extends HTMLElement implements IDisposable {
                 }),
             ),
             div(
-                { className: style.selectionButton, onclick: () => controller.success() },
+                {
+                    className: style.selectionButton,
+                    onclick: () => {
+                        this.commitPendingEdit();
+                        controller.success();
+                    },
+                },
                 svg({ icon: "icon-confirm" }),
             ),
             div(
@@ -120,6 +126,19 @@ export class CommandContext extends HTMLElement implements IDisposable {
         }
         return countSpan;
     }
+
+    /**
+     * Number/text property inputs only commit on blur or Enter (see newInput).
+     * The confirm button is a plain, non-focusable div, so clicking it right
+     * after typing never fires that blur on its own - flush it explicitly so
+     * a value typed and immediately confirmed isn't silently dropped.
+     */
+    private readonly commitPendingEdit = () => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && this.container.contains(active)) {
+            active.blur();
+        }
+    };
 
     private readonly clearSelectionControl = () => {
         this.selectionControlContainer?.remove();
