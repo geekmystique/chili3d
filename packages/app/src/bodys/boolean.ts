@@ -6,16 +6,29 @@ import {
     type IDocument,
     type IShape,
     ParameterShapeNode,
+    type PropertyChangedHandler,
     Result,
+    ShapeNode,
     serializable,
     serialize,
 } from "@chili3d/core";
 
+export type BooleanOperateType = "common" | "cut" | "fuse";
+
 export interface BooleanOptions {
     document: IDocument;
-    booleanShape: IShape;
+    operateType: BooleanOperateType;
+    baseNodeId: string;
+    toolNodeIds: string[];
 }
 
+/**
+ * Holds a reference to its base and tool node ids rather than a baked shape.
+ * Editing a referenced node's shape (a parametric property, or another
+ * feature further upstream) recomputes this node automatically. The
+ * referenced nodes stay in the document tree - callers are expected to hide
+ * rather than delete them - so the reference keeps resolving.
+ */
 @serializable()
 export class BooleanNode extends ParameterShapeNode {
     override display(): I18nKeys {
@@ -23,16 +36,91 @@ export class BooleanNode extends ParameterShapeNode {
     }
 
     @serialize()
-    get booleanShape(): IShape {
-        return this.getPrivateValue("booleanShape");
+    get operateType(): BooleanOperateType {
+        return this.getPrivateValue("operateType");
     }
+
+    @serialize()
+    get baseNodeId(): string {
+        return this.getPrivateValue("baseNodeId");
+    }
+
+    @serialize()
+    get toolNodeIds(): string[] {
+        return this.getPrivateValue("toolNodeIds");
+    }
+
+    private readonly _subscribed = new Set<ShapeNode>();
 
     constructor(options: BooleanOptions) {
         super(options);
-        this.setPrivateValue("booleanShape", options.booleanShape);
+        this.setPrivateValue("operateType", options.operateType);
+        this.setPrivateValue("baseNodeId", options.baseNodeId);
+        this.setPrivateValue("toolNodeIds", options.toolNodeIds);
     }
 
     override generateShape(): Result<IShape> {
-        return Result.ok(this.booleanShape);
+        const base = this.resolveInput(this.baseNodeId);
+        if (!base) return Result.err(`Boolean: base shape "${this.baseNodeId}" no longer exists`);
+        if (!base.shape.isOk) return Result.err(base.shape.error);
+
+        const tools: ShapeNode[] = [];
+        for (const id of this.toolNodeIds) {
+            const tool = this.resolveInput(id);
+            if (!tool) return Result.err(`Boolean: tool shape "${id}" no longer exists`);
+            if (!tool.shape.isOk) return Result.err(tool.shape.error);
+            tools.push(tool);
+        }
+
+        this.subscribeTo([base, ...tools]);
+
+        const shape1 = base.shape.value.transformedMul(base.transform);
+        const toolShapes = tools.map((t) => t.shape.value.transformedMul(t.transform));
+        try {
+            shape1.setTolerance(1e-6);
+            toolShapes.forEach((s) => {
+                s.setTolerance(1e-6);
+            });
+            switch (this.operateType) {
+                case "common":
+                    return shapeFactory.booleanCommon([shape1], toolShapes);
+                case "cut":
+                    return shapeFactory.booleanCut([shape1], toolShapes);
+                default:
+                    return shapeFactory.booleanFuse([shape1], toolShapes, true);
+            }
+        } finally {
+            shape1.dispose();
+            toolShapes.forEach((s) => {
+                s.dispose();
+            });
+        }
+    }
+
+    /** Recompute whenever a referenced node's own shape changes. */
+    private readonly onInputChanged: PropertyChangedHandler<ShapeNode, keyof ShapeNode> = (property) => {
+        if (property !== "shape") return;
+        this.shape = this.generateShape();
+    };
+
+    private subscribeTo(nodes: ShapeNode[]) {
+        nodes.forEach((node) => {
+            if (this._subscribed.has(node)) return;
+            this._subscribed.add(node);
+            node.onPropertyChanged(this.onInputChanged);
+        });
+    }
+
+    private resolveInput(id: string): ShapeNode | undefined {
+        const node = this.document.modelManager.findNode((n) => n.id === id);
+        return node instanceof ShapeNode ? node : undefined;
+    }
+
+    override disposeInternal(): void {
+        this._subscribed.forEach((node) => {
+            node.removePropertyChanged(this.onInputChanged);
+        });
+        this._subscribed.clear();
+        super.disposeInternal();
     }
 }

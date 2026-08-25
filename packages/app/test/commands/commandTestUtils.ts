@@ -92,6 +92,7 @@ export function wireCommand<C>(cmd: C): { doc: IDocument; addedNodes: unknown[] 
             currentNode: undefined,
             rootNode: makeParent({ id: "root" }),
             materials: [{ id: "mat-default" }],
+            findNode: (_predicate: (n: INode) => boolean) => undefined,
         },
         visual: {
             update: rs.fn(),
