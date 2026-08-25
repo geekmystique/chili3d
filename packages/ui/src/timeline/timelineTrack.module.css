@@ -12,3 +12,7 @@
     background-color: var(--hover-background-color);
     outline: 1px solid var(--primary-color);
 }
+
+.related {
+    outline: 1px dashed var(--primary-color);
+}

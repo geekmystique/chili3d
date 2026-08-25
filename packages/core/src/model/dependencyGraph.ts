@@ -48,6 +48,9 @@ export class DependencyGraph {
     /** Drop `id` from the graph entirely - its own dependencies and its entry as a dependency of others. */
     removeNode(id: string) {
         this.clearDependencies(id);
+        this._dependents.get(id)?.forEach((dependentId) => {
+            this._dependsOn.get(dependentId)?.delete(id);
+        });
         this._dependents.delete(id);
         this._nodes.delete(id);
     }
@@ -83,18 +86,36 @@ export class DependencyGraph {
         }
     }
 
+    /** Every node transitively downstream of `id` (nodes that depend on it, directly or through others). */
+    getAllDependents(id: string): Set<string> {
+        return this.collectDownstream(id);
+    }
+
+    /** Every node `id` transitively depends on, directly or through others. */
+    getAllDependencies(id: string): Set<string> {
+        return this.collectUpstream(id);
+    }
+
     private collectDownstream(startId: string): Set<string> {
-        const affected = new Set<string>();
+        return this.collect(startId, this._dependents);
+    }
+
+    private collectUpstream(startId: string): Set<string> {
+        return this.collect(startId, this._dependsOn);
+    }
+
+    private collect(startId: string, edges: Map<string, Set<string>>): Set<string> {
+        const result = new Set<string>();
         const queue = [startId];
         while (queue.length > 0) {
             const id = queue.shift() as string;
-            this._dependents.get(id)?.forEach((dependentId) => {
-                if (affected.has(dependentId)) return;
-                affected.add(dependentId);
-                queue.push(dependentId);
+            edges.get(id)?.forEach((relatedId) => {
+                if (result.has(relatedId)) return;
+                result.add(relatedId);
+                queue.push(relatedId);
             });
         }
-        return affected;
+        return result;
     }
 
     /** Kahn's algorithm restricted to `affected`, ordering only by edges within that set. */

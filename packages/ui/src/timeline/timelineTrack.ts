@@ -85,11 +85,18 @@ export class TimelineTrack extends HTMLElement {
     };
 
     private readonly handleSelectionChanged = (selected: INode[]) => {
+        const related = this.collectRelatedIds(selected);
         this.nodeMap.forEach((item, node) => {
             if (selected.includes(node)) {
                 item.addStyle(style.selected);
+                item.removeStyle(style.related);
             } else {
                 item.removeStyle(style.selected);
+                if (related.has(node.id)) {
+                    item.addStyle(style.related);
+                } else {
+                    item.removeStyle(style.related);
+                }
             }
         });
         const node = selected.find((n) => this.nodeMap.has(n as GeometryNode));
@@ -97,6 +104,22 @@ export class TimelineTrack extends HTMLElement {
             this.nodeMap.get(node as GeometryNode)?.scrollIntoView({ inline: "nearest", behavior: "smooth" });
         }
     };
+
+    /** Every node transitively upstream or downstream of any selected node, via the DependencyGraph. */
+    private collectRelatedIds(selected: INode[]): Set<string> {
+        const graph = this.document.modelManager.dependencyGraph;
+        const related = new Set<string>();
+        if (!graph) return related;
+        selected.forEach((node) => {
+            graph.getAllDependencies(node.id).forEach((id) => {
+                related.add(id);
+            });
+            graph.getAllDependents(node.id).forEach((id) => {
+                related.add(id);
+            });
+        });
+        return related;
+    }
 
     private readonly onClick = (event: MouseEvent) => {
         const item = this.getTimelineItem(event.target as HTMLElement | null);

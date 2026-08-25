@@ -123,4 +123,40 @@ describe("DependencyGraph", () => {
         expect(countOf(order, "a")).toBe(1);
         expect(countOf(order, "b")).toBe(1);
     });
+
+    describe("getAllDependents / getAllDependencies", () => {
+        // a -> b -> d
+        // a -> c -> d
+        function makeDiamond() {
+            const graph = new DependencyGraph();
+            const order: string[] = [];
+            graph.setDependencies(node("b", order), ["a"]);
+            graph.setDependencies(node("c", order), ["a"]);
+            graph.setDependencies(node("d", order), ["b", "c"]);
+            return graph;
+        }
+
+        test("getAllDependents should return every transitive downstream node", () => {
+            const graph = makeDiamond();
+            expect(graph.getAllDependents("a")).toEqual(new Set(["b", "c", "d"]));
+            expect(graph.getAllDependents("b")).toEqual(new Set(["d"]));
+            expect(graph.getAllDependents("d")).toEqual(new Set());
+        });
+
+        test("getAllDependencies should return every transitive upstream node", () => {
+            const graph = makeDiamond();
+            expect(graph.getAllDependencies("d")).toEqual(new Set(["b", "c", "a"]));
+            expect(graph.getAllDependencies("b")).toEqual(new Set(["a"]));
+            expect(graph.getAllDependencies("a")).toEqual(new Set());
+        });
+
+        test("should reflect removeNode, including stale references in the survivor's own dependency set", () => {
+            const graph = makeDiamond();
+            graph.removeNode("b");
+            expect(graph.getAllDependents("a")).toEqual(new Set(["c", "d"]));
+            // d no longer depends on the removed b, but it still depends on c,
+            // which still depends on a - that part of the graph is untouched.
+            expect(graph.getAllDependencies("d")).toEqual(new Set(["c", "a"]));
+        });
+    });
 });
