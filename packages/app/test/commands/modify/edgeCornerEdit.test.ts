@@ -155,6 +155,25 @@ describe("EdgeCornerEditCommand", () => {
             expect(baseNode.visible).toBe(false);
             expect(targetNode.visible).toBe(true);
         });
+
+        test("select() should resolve with an empty (not undefined) result when nothing is (re-)picked, so the command doesn't abort before executeMainTask", async () => {
+            // Confirming without touching the 3D view must not be treated as a
+            // failed step - the base SelectShapeStep returns undefined for a
+            // zero-shape pick, which would silently drop the whole edit (see
+            // executeMainTask's edgeIndexes fallback below for the other half).
+            const { cmd, doc } = buildEditCommand([1, 2]);
+            await (cmd as any).canExcute();
+            const steps = (cmd as any).getSteps();
+
+            (doc as any).application = { activeView: { document: doc } };
+            (doc.picker as any).pickShape = rs.fn(async () => []);
+            (doc.selection as any).getSelectedShapes = () => [];
+
+            const result = await steps[0].select(doc, {} as any);
+
+            expect(result).toBeDefined();
+            expect(result.shapes).toEqual([]);
+        });
     });
 
     describe("executeMainTask", () => {
@@ -167,6 +186,23 @@ describe("EdgeCornerEditCommand", () => {
 
             expect(targetNode.edgeIndexes).toEqual([3, 7]);
             expect(targetNode.value).toBe(9);
+            expect(targetNode.shape.isOk).toBe(true);
+        });
+
+        test("should keep the target's existing edgeIndexes when nothing was (re-)picked", () => {
+            // Reproduces the double-click-edit-value-only-and-confirm flow: the
+            // step still resolves (per the select() fix above), but with zero
+            // shapes - executeMainTask must fall back to the node's current
+            // edgeIndexes instead of wiping them out.
+            const { cmd, targetNode } = buildEditCommand([1, 2]);
+            (cmd as any).targetNode = targetNode;
+            (cmd as any).stepDatas = [shapeStepResult([])];
+            (cmd as any).setPrivateValue("value", 10);
+
+            (cmd as any).executeMainTask();
+
+            expect(targetNode.edgeIndexes).toEqual([1, 2]);
+            expect(targetNode.value).toBe(10);
             expect(targetNode.shape.isOk).toBe(true);
         });
 
