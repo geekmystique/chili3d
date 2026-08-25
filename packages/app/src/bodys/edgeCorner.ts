@@ -86,6 +86,13 @@ export class EdgeCornerNode extends ReferenceShapeNode {
         this.setShape(this.generateShape());
     }
 
+    override redirectReference(oldId: string, newId: string): boolean {
+        if (this.baseNodeId !== oldId) return false;
+        this.setProperty("baseNodeId", newId);
+        this.setShape(this.generateShape());
+        return true;
+    }
+
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.baseNodeId);
         if (!base) {

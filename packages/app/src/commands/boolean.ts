@@ -13,6 +13,7 @@ import {
     SelectShapeStep,
     ShapeNode,
     ShapeTypes,
+    spliceIntoReferenceChain,
     Transaction,
     type VisualShapeData,
     VisualStates,
@@ -53,9 +54,11 @@ export abstract class BooleanOperate extends MultistepCommand {
             // Hide rather than delete the consumed nodes - the boolean node keeps
             // a live reference to them, so deleting would break that reference.
             baseNode.visible = false;
+            if (baseNode instanceof ShapeNode) spliceIntoReferenceChain(this.document, baseNode, node);
             if (!this.keepTools) {
                 toolNodes.forEach((n) => {
                     n.visible = false;
+                    if (n instanceof ShapeNode) spliceIntoReferenceChain(this.document, n, node);
                 });
             }
             this.document.visual.update();

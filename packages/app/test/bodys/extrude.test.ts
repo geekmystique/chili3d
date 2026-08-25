@@ -66,6 +66,39 @@ describe("ExtrudeNode", () => {
         });
     });
 
+    describe("redirectReference", () => {
+        test("should redirect sectionNodeId and recompute when it matches", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newBase",
+                shape: selfTransforming(createMockWire()),
+            });
+            nodes.push(newBase);
+            const prism = rs.fn(() => Result.ok(createMockShape() as any));
+            setupShapeFactoryMock({ prism });
+            const node = makeNode(10);
+            expect(node.shape.isOk).toBe(true);
+            expect(prism).toHaveBeenCalledTimes(1);
+
+            const changed = node.redirectReference(baseNode.id, newBase.id);
+
+            expect(changed).toBe(true);
+            expect(node.sectionNodeId).toBe(newBase.id);
+            expect(prism).toHaveBeenCalledTimes(2);
+        });
+
+        test("should return false and leave sectionNodeId untouched when the id doesn't match", () => {
+            setupShapeFactoryMock({ prism: () => Result.ok(createMockShape() as any) });
+            const node = makeNode(10);
+            expect(node.shape.isOk).toBe(true);
+
+            const changed = node.redirectReference("unrelated-id", "new-id");
+
+            expect(changed).toBe(false);
+            expect(node.sectionNodeId).toBe(baseNode.id);
+        });
+    });
+
     describe("setters", () => {
         test("setting length should update value and regenerate the shape", () => {
             const prism = rs.fn(() => Result.ok(createMockShape() as any));

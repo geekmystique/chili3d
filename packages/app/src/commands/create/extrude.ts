@@ -16,6 +16,7 @@ import {
     type ShapeNode,
     type ShapeType,
     ShapeTypes,
+    spliceIntoReferenceChain,
 } from "@chili3d/core";
 import { closedProfileToFace, ExtrudeNode } from "../../bodys";
 import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCommand";
@@ -25,6 +26,8 @@ import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCo
     icon: "icon-prism",
 })
 export class ExtrudeCommand extends CreateFromSelectionCommand {
+    private createdNode?: ExtrudeNode;
+
     protected override geometryNode(): GeometryNode {
         const pick = this.stepDatas[0].shapes[0];
         const shape = this.transformdFirstShape(this.stepDatas[0], false);
@@ -32,13 +35,15 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
         const dist = this.stepDatas[1].point!.sub(point).dot(normal);
 
         const sub = pick.shape as Partial<ISubShape>;
-        return new ExtrudeNode({
+        const node = new ExtrudeNode({
             document: this.document,
             sectionNodeId: (pick.owner.node as ShapeNode).id,
             sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
             sectionIndex: sub.index,
             length: dist,
         });
+        this.createdNode = node;
+        return node;
     }
 
     /**
@@ -46,11 +51,14 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
      * reference to whichever one it was picked from, so deleting it would
      * break that reference. Sub-shape picks (a face of an existing solid)
      * are excluded by selectedWholeShapeNodes, so that solid stays visible.
+     * Any other feature that already referenced a hidden source (a boolean
+     * built on the same sketch, say) gets pointed at the new Extrude instead.
      */
     protected override afterNodeCreated(): void {
         if (this.deleteObjects) {
             selectedWholeShapeNodes(this.stepDatas).forEach((node) => {
                 node.visible = false;
+                if (this.createdNode) spliceIntoReferenceChain(this.document, node, this.createdNode);
             });
         }
     }

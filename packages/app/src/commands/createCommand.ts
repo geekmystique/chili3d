@@ -3,7 +3,6 @@
 
 import {
     type GeometryNode,
-    type INode,
     MultistepCommand,
     property,
     ShapeNode,
@@ -18,8 +17,8 @@ const count = 1;
  * node's own shape type (e.g. an edge picked from an edge node). Sub-shape
  * picks (a face of a solid node) are excluded so their owner node is kept.
  */
-export function selectedWholeShapeNodes(stepDatas: SnapResult[]): INode[] {
-    const nodes = new Set<INode>();
+export function selectedWholeShapeNodes(stepDatas: SnapResult[]): ShapeNode[] {
+    const nodes = new Set<ShapeNode>();
     stepDatas.forEach((data) => {
         data.shapes.forEach((shapeData) => {
             const node = shapeData.owner.node;

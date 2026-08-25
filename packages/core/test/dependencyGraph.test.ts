@@ -159,4 +159,24 @@ describe("DependencyGraph", () => {
             expect(graph.getAllDependencies("d")).toEqual(new Set(["c", "a"]));
         });
     });
+
+    describe("getDirectDependents", () => {
+        test("should return only one-hop dependents, not transitive ones", () => {
+            // a -> b -> d ; a -> c -> d (same diamond as above)
+            const graph = new DependencyGraph();
+            const order: string[] = [];
+            graph.setDependencies(node("b", order), ["a"]);
+            graph.setDependencies(node("c", order), ["a"]);
+            graph.setDependencies(node("d", order), ["b", "c"]);
+
+            expect(graph.getDirectDependents("a")).toEqual(new Set(["b", "c"]));
+            expect(graph.getDirectDependents("b")).toEqual(new Set(["d"]));
+            expect(graph.getDirectDependents("d")).toEqual(new Set());
+        });
+
+        test("should return an empty set for a node with no dependents", () => {
+            const graph = new DependencyGraph();
+            expect(graph.getDirectDependents("nobody-depends-on-me")).toEqual(new Set());
+        });
+    });
 });

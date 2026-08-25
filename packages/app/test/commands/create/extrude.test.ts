@@ -5,6 +5,7 @@ import {
     EditableShapeNode,
     type IDocument,
     type IShape,
+    Result,
     type ShapeType,
     ShapeTypes,
     XYZ,
@@ -159,6 +160,75 @@ describe("ExtrudeCommand", () => {
             (cmd as any).afterNodeCreated();
 
             expect(sectionNode.visible).toBe(true);
+        });
+
+        test("should splice a downstream feature onto the new Extrude when the source already has one", () => {
+            // The shared stub-app factory's fake shape lacks isEqual, which
+            // ShapeNode.setShape needs to compare against a shape that's already
+            // ok - fine for a single compute, but this test recomputes downstream
+            // a second time via redirectReference. Swap in mockShape()-based
+            // results (isEqual: () => false, so every setShape goes through) for
+            // the duration of this test only.
+            const originalFactory = (globalThis as any).app.shapeProvider.factory;
+            Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                configurable: true,
+                value: new Proxy({}, { get: () => () => Result.ok(mockShape()) }),
+            });
+
+            try {
+                const cmd = new ExtrudeCommand();
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                // Face, not wire: selectedWholeShapeNodes only treats the pick as "the
+                // node's whole shape" (and so hides it) when the picked shape's type
+                // matches the node's own shape type - both need to agree here.
+                const sectionNode = liveSectionNode(doc, ShapeTypes.face);
+                sectionNode.parent = parent;
+                // ExtrudeNode.generateShape needs surface()/normal() on a face section;
+                // the shared mockShape() doesn't implement either.
+                Object.assign(sectionNode.shape.value, {
+                    surface: () => ({ isPlanar: () => true }),
+                    normal: () => [XYZ.zero, XYZ.unitZ],
+                });
+
+                // downstream already references sectionNode directly (e.g. a boolean
+                // built from the same sketch).
+                const downstream = new ExtrudeNode({
+                    document: doc,
+                    sectionNodeId: sectionNode.id,
+                    length: 5,
+                });
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [sectionNode, downstream].find(predicate);
+                expect(downstream.shape.isOk).toBe(true); // establishes the sectionNode -> downstream DAG edge
+
+                seedStepDatas(cmd, [
+                    shapeStepResult([
+                        {
+                            shape: {
+                                shapeType: ShapeTypes.face,
+                                normal: () => [XYZ.zero, XYZ.unitZ],
+                            } as Partial<IShape>,
+                            node: sectionNode,
+                            point: XYZ.zero,
+                        },
+                    ]),
+                    pointStepResult({ point: new XYZ({ x: 0, y: 0, z: 5 }) }),
+                ]);
+
+                const newExtrude = (cmd as any).geometryNode();
+                parent.add(newExtrude);
+                (cmd as any).afterNodeCreated();
+
+                expect(downstream.sectionNodeId).toBe(newExtrude.id);
+                // newExtrude is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newExtrude.visible).toBe(false);
+            } finally {
+                Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                    configurable: true,
+                    value: originalFactory,
+                });
+            }
         });
     });
 

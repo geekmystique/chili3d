@@ -150,6 +150,70 @@ describe("BooleanNode", () => {
         });
     });
 
+    describe("redirectReference", () => {
+        test("should redirect baseNodeId and recompute when it matches", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newBase",
+                shape: createMockShape(),
+            });
+            nodes.push(newBase);
+            let calls = 0;
+            setupShapeFactoryMock({
+                booleanFuse: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const node = makeNode("fuse");
+            expect(node.shape.isOk).toBe(true);
+            expect(calls).toBe(1);
+
+            const changed = node.redirectReference(baseNode.id, newBase.id);
+
+            expect(changed).toBe(true);
+            expect(node.baseNodeId).toBe(newBase.id);
+            expect(calls).toBe(2);
+        });
+
+        test("should redirect a matching toolNodeIds entry and recompute", () => {
+            const newTool = new EditableShapeNode({
+                document: doc,
+                name: "newTool",
+                shape: createMockShape(),
+            });
+            nodes.push(newTool);
+            let calls = 0;
+            setupShapeFactoryMock({
+                booleanFuse: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const node = makeNode("fuse");
+            expect(node.shape.isOk).toBe(true);
+            expect(calls).toBe(1);
+
+            const changed = node.redirectReference(toolNode.id, newTool.id);
+
+            expect(changed).toBe(true);
+            expect(node.toolNodeIds).toEqual([newTool.id]);
+            expect(calls).toBe(2);
+        });
+
+        test("should return false and leave state untouched when the id matches neither base nor a tool", () => {
+            setupShapeFactoryMock({ booleanFuse: () => Result.ok(createMockShape()) });
+            const node = makeNode("fuse");
+            expect(node.shape.isOk).toBe(true);
+
+            const changed = node.redirectReference("unrelated-id", "new-id");
+
+            expect(changed).toBe(false);
+            expect(node.baseNodeId).toBe(baseNode.id);
+            expect(node.toolNodeIds).toEqual([toolNode.id]);
+        });
+    });
+
     describe("serialization", () => {
         test("should round-trip operateType/baseNodeId/toolNodeIds", () => {
             const node = makeNode("common");

@@ -18,6 +18,7 @@ import {
 } from "@chili3d/core";
 import { describe, expect, rs, test } from "@rstest/core";
 import { BooleanNode } from "../../src/bodys/boolean";
+import { EdgeCornerNode } from "../../src/bodys/edgeCorner";
 import { BooleanCommon, BooleanCut, BooleanFuse } from "../../src/commands/boolean";
 import {
     ensureGlobalStubApp,
@@ -300,6 +301,50 @@ describe("BooleanOperate (via BooleanCommon)", () => {
                 expect(toolNode.visible).toBe(false);
                 expect(baseNode.parent).toBeUndefined();
                 expect(toolNode.parent).toBeUndefined();
+            } finally {
+                restoreFactory();
+                restoreTx();
+                restoreApp();
+            }
+        });
+
+        test("should splice a downstream feature onto the new BooleanNode when the base already has one", () => {
+            const restoreApp = ensureGlobalStubApp();
+            const restoreTx = stubTransactionRun();
+            const { factory, restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
+            (factory as unknown as { fillet: () => Result<IShape> }).fillet = () =>
+                Result.ok(shapeWithTolerance());
+            try {
+                const cmd = new BooleanCommon();
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
+
+                // downstream already references baseNode directly (e.g. a fillet
+                // applied earlier to the same body).
+                const downstream = new EdgeCornerNode({
+                    document: doc,
+                    operateType: "fillet",
+                    baseNodeId: baseNode.id,
+                    edgeIndexes: [0],
+                    value: 1,
+                });
+                const findInputNodes = (doc.modelManager as any).findNode;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    findInputNodes(predicate) ?? [downstream].find(predicate);
+                expect(downstream.shape.isOk).toBe(true); // establishes the baseNode -> downstream DAG edge
+
+                seedStepDatas(cmd, [
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
+                ]);
+
+                (cmd as any).executeMainTask();
+
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                const newBoolean = rootNode.added[0] as BooleanNode;
+                expect(downstream.baseNodeId).toBe(newBoolean.id);
+                // newBoolean is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newBoolean.visible).toBe(false);
             } finally {
                 restoreFactory();
                 restoreTx();

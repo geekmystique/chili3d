@@ -242,6 +242,18 @@ export abstract class ReferenceShapeNode extends ParameterShapeNode implements I
         return undefined;
     }
 
+    /**
+     * Replace a reference to oldId with newId, if this node references it
+     * directly, and recompute. Returns whether anything changed. The
+     * default does nothing; a subclass with reference fields (baseNodeId,
+     * toolNodeIds, ...) overrides this to redirect whichever field(s)
+     * match. Used by spliceIntoReferenceChain to splice a newly created
+     * feature into an existing chain.
+     */
+    redirectReference(_oldId: string, _newId: string): boolean {
+        return false;
+    }
+
     protected resolveInput(id: string): ShapeNode | undefined {
         const node = this.document.modelManager.findNode((n) => n.id === id);
         return node instanceof ShapeNode ? node : undefined;
@@ -263,6 +275,40 @@ export abstract class ReferenceShapeNode extends ParameterShapeNode implements I
         this.document.modelManager.dependencyGraph?.removeNode(this.id);
         super.disposeInternal();
     }
+}
+
+/**
+ * Splice `newNode` into the chain in place of `oldNode`: every other node
+ * that directly referenced oldNode (found through the DependencyGraph, so
+ * this is a no-op without one) gets redirected to newNode instead, then
+ * recomputes. Call this right after creating a feature that hides its own
+ * base node (a new fillet on a body that already feeds a boolean, say), so
+ * anything already downstream of that base picks up the new feature
+ * instead of staying pinned to what it replaced.
+ *
+ * When something actually got redirected, newNode is no longer the end of
+ * the chain - it hides itself too, the same way oldNode did, so only the
+ * true downstream result stays visible. Returns whether that happened.
+ */
+export function spliceIntoReferenceChain(
+    document: IDocument,
+    oldNode: ShapeNode,
+    newNode: ReferenceShapeNode,
+): boolean {
+    const graph = document.modelManager.dependencyGraph;
+    if (!graph) return false;
+
+    let spliced = false;
+    graph.getDirectDependents(oldNode.id).forEach((id) => {
+        if (id === newNode.id) return;
+        const dependent = document.modelManager.findNode((n) => n.id === id);
+        if (dependent instanceof ReferenceShapeNode && dependent.redirectReference(oldNode.id, newNode.id)) {
+            spliced = true;
+        }
+    });
+
+    if (spliced) newNode.visible = false;
+    return spliced;
 }
 
 export interface EditableShapeNodeOptions {

@@ -12,6 +12,7 @@ import {
     ShapeTypes,
 } from "@chili3d/core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
+import { EdgeCornerNode } from "../../../src/bodys/edgeCorner";
 import { FilletCommand } from "../../../src/commands/modify/fillet";
 import {
     ensureGlobalStubApp,
@@ -411,6 +412,37 @@ describe("FilletCommand", () => {
             expect(added.baseNodeId).toBe(solidNode.id);
             expect(added.edgeIndexes).toEqual([3, 7]);
             expect(solidNode.visible).toBe(false);
+        });
+
+        test("should splice a downstream feature onto the new fillet when the base already has one", () => {
+            const { cmd, parent, solidNode, doc } = buildFilletCommand([3, 7], { liveNode: true });
+
+            // downstream already references solidNode directly (e.g. a chamfer
+            // applied earlier to the same body).
+            const downstream = new EdgeCornerNode({
+                document: doc,
+                operateType: "chamfer",
+                baseNodeId: solidNode.id,
+                edgeIndexes: [0],
+                value: 1,
+            });
+            const findSolidNode = (doc.modelManager as any).findNode;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                findSolidNode(predicate) ?? [downstream].find(predicate);
+
+            const { restore } = captureFactory();
+            try {
+                expect(downstream.shape.isOk).toBe(true); // establishes the solidNode -> downstream DAG edge
+
+                (cmd as any).executeMainTask();
+
+                const newFillet = parent.added[0] as EdgeCornerNode;
+                expect(downstream.baseNodeId).toBe(newFillet.id);
+                // newFillet is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newFillet.visible).toBe(false);
+            } finally {
+                restore();
+            }
         });
 
         test("should fall back to rootNode when the original node has no parent", () => {

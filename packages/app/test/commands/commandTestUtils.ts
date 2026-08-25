@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    DependencyGraph,
     type IApplication,
     type IDocument,
     type INode,
@@ -93,6 +94,7 @@ export function wireCommand<C>(cmd: C): { doc: IDocument; addedNodes: unknown[] 
             rootNode: makeParent({ id: "root" }),
             materials: [{ id: "mat-default" }],
             findNode: (_predicate: (n: INode) => boolean) => undefined,
+            dependencyGraph: new DependencyGraph(),
         },
         visual: {
             update: rs.fn(),

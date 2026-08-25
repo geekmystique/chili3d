@@ -144,6 +144,44 @@ describe("EdgeCornerNode", () => {
         });
     });
 
+    describe("redirectReference", () => {
+        test("should redirect baseNodeId and recompute when it matches", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newBase",
+                shape: createMockShape(),
+            });
+            nodes.push(newBase);
+            let calls = 0;
+            setupShapeFactoryMock({
+                fillet: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const node = makeNode("fillet", 5);
+            expect(node.shape.isOk).toBe(true);
+            expect(calls).toBe(1);
+
+            const changed = node.redirectReference(baseNode.id, newBase.id);
+
+            expect(changed).toBe(true);
+            expect(node.baseNodeId).toBe(newBase.id);
+            expect(calls).toBe(2);
+        });
+
+        test("should return false and leave baseNodeId untouched when the id doesn't match", () => {
+            setupShapeFactoryMock({ fillet: () => Result.ok(createMockShape()) });
+            const node = makeNode("fillet", 5);
+            expect(node.shape.isOk).toBe(true);
+
+            const changed = node.redirectReference("unrelated-id", "new-id");
+
+            expect(changed).toBe(false);
+            expect(node.baseNodeId).toBe(baseNode.id);
+        });
+    });
+
     describe("updateSelection", () => {
         test("should replace edgeIndexes/value and recompute once, against the new inputs", () => {
             const calls: unknown[][] = [];

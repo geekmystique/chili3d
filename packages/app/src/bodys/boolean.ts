@@ -56,6 +56,23 @@ export class BooleanNode extends ReferenceShapeNode {
         this.setPrivateValue("toolNodeIds", options.toolNodeIds);
     }
 
+    override redirectReference(oldId: string, newId: string): boolean {
+        let changed = false;
+        if (this.baseNodeId === oldId) {
+            this.setProperty("baseNodeId", newId);
+            changed = true;
+        }
+        const toolIndex = this.toolNodeIds.indexOf(oldId);
+        if (toolIndex !== -1) {
+            const toolNodeIds = [...this.toolNodeIds];
+            toolNodeIds[toolIndex] = newId;
+            this.setProperty("toolNodeIds", toolNodeIds);
+            changed = true;
+        }
+        if (changed) this.setShape(this.generateShape());
+        return changed;
+    }
+
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.baseNodeId);
         if (!base) return Result.err(`Boolean: base shape "${this.baseNodeId}" no longer exists`);

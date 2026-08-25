@@ -16,6 +16,7 @@ import {
     type ShapeNode,
     type ShapeType,
     ShapeTypes,
+    spliceIntoReferenceChain,
     Transaction,
     type VisualShapeData,
 } from "@chili3d/core";
@@ -184,6 +185,9 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
 
         (node.parent ?? this.document.modelManager.rootNode).add(featureNode);
         node.visible = false;
+        // node may already feed other features (a boolean, say) - point those at
+        // the new fillet/chamfer instead of the now-hidden, un-corner-ed node.
+        spliceIntoReferenceChain(this.document, node, featureNode);
         this.document.visual.update();
     }
 

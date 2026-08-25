@@ -3,7 +3,7 @@
 
 import { type IShape, type IShapeMeshData, Matrix4, Result } from "../src";
 import * as ShapeNodeClasses from "../src/model/shapeNode";
-import { MockShape, TestDocument } from "../test-utils";
+import { createMockDocument, MockShape, TestDocument } from "../test-utils";
 
 describe("shapeNode", () => {
     let doc: TestDocument;
@@ -325,6 +325,114 @@ describe("shapeNode", () => {
         test("should have no editCommandKey by default", () => {
             const ref = new TestReferenceNode(doc, base.id);
             expect(ref.editCommandKey).toBeUndefined();
+        });
+
+        test("redirectReference should be a no-op by default", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.redirectReference(base.id, "some-other-id")).toBe(false);
+        });
+    });
+
+    describe("spliceIntoReferenceChain", () => {
+        /** A ReferenceShapeNode with a mutable, redirectable base reference. */
+        class RedirectableReferenceNode extends ShapeNodeClasses.ReferenceShapeNode {
+            baseId: string;
+
+            constructor(document: TestDocument, baseId: string) {
+                super({ document });
+                this.baseId = baseId;
+            }
+
+            display(): any {
+                return "test.redirectable";
+            }
+
+            generateShape(): Result<IShape> {
+                const base = this.resolveInput(this.baseId);
+                if (!base) return Result.err("base not found");
+                if (!base.shape.isOk) return Result.err(base.shape.error);
+                this.subscribeTo([base]);
+                return Result.ok(base.shape.value);
+            }
+
+            override redirectReference(oldId: string, newId: string): boolean {
+                if (this.baseId !== oldId) return false;
+                this.baseId = newId;
+                this.shape = this.generateShape();
+                return true;
+            }
+        }
+
+        let base: ShapeNodeClasses.EditableShapeNode;
+
+        beforeEach(() => {
+            base = new ShapeNodeClasses.EditableShapeNode({ document: doc, name: "base", shape: mockShape });
+            doc.modelManager.rootNode.add(base);
+        });
+
+        test("should redirect a direct dependent from oldNode to newNode, recompute it, and hide newNode", () => {
+            const dependent = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(dependent);
+            expect(dependent.shape.isOk).toBe(true); // establishes the base -> dependent DAG edge
+
+            const newFeature = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(newFeature);
+            expect(newFeature.shape.isOk).toBe(true);
+
+            const spliced = ShapeNodeClasses.spliceIntoReferenceChain(doc, base, newFeature);
+
+            expect(spliced).toBe(true);
+            expect(dependent.baseId).toBe(newFeature.id);
+            expect(dependent.shape.value).toBe(newFeature.shape.value);
+            // newFeature is no longer the end of the chain - dependent is - so it hides itself.
+            expect(newFeature.visible).toBe(false);
+        });
+
+        test("should not redirect the new node itself, even though it also directly depends on oldNode", () => {
+            const newFeature = new RedirectableReferenceNode(doc, base.id);
+            doc.modelManager.rootNode.add(newFeature);
+            expect(newFeature.shape.isOk).toBe(true); // newFeature is itself a direct dependent of base
+
+            let spliced: boolean | undefined;
+            expect(() => {
+                spliced = ShapeNodeClasses.spliceIntoReferenceChain(doc, base, newFeature);
+            }).not.toThrow();
+
+            expect(spliced).toBe(false);
+            expect(newFeature.baseId).toBe(base.id);
+            // Nothing else was downstream of base, so newFeature stays the end of the chain.
+            expect(newFeature.visible).toBe(true);
+        });
+
+        test("should leave a dependent that isn't a ReferenceShapeNode untouched, and not hide newNode", () => {
+            const plainDependent = { id: "plain-dependent" } as unknown as ShapeNodeClasses.ShapeNode;
+            doc.modelManager.dependencyGraph.setDependencies({ id: "plain-dependent", recompute: () => {} }, [
+                base.id,
+            ]);
+            (doc.modelManager as any).findNode = () => plainDependent;
+
+            const newFeature = new RedirectableReferenceNode(doc, base.id);
+            let spliced: boolean | undefined;
+            expect(() => {
+                spliced = ShapeNodeClasses.spliceIntoReferenceChain(doc, base, newFeature);
+            }).not.toThrow();
+
+            expect(spliced).toBe(false);
+            expect(newFeature.visible).toBe(true);
+        });
+
+        test("should be a no-op when the document has no DependencyGraph", () => {
+            const docWithoutGraph = createMockDocument({
+                modelManager: { dependencyGraph: undefined } as any,
+            });
+            const newFeature = new RedirectableReferenceNode(doc, base.id);
+
+            let spliced: boolean | undefined;
+            expect(() => {
+                spliced = ShapeNodeClasses.spliceIntoReferenceChain(docWithoutGraph, base, newFeature);
+            }).not.toThrow();
+
+            expect(spliced).toBe(false);
         });
     });
 });

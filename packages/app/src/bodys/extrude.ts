@@ -90,6 +90,13 @@ export class ExtrudeNode extends ReferenceShapeNode {
         this.setPrivateValue("length", options.length);
     }
 
+    override redirectReference(oldId: string, newId: string): boolean {
+        if (this.sectionNodeId !== oldId) return false;
+        this.setProperty("sectionNodeId", newId);
+        this.setShape(this.generateShape());
+        return true;
+    }
+
     /**
      * The base node's own shape, or - when sectionIndex is set - the
      * sub-shape at that index within it. Sub-shape indexes are positions
