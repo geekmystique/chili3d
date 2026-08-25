@@ -19,6 +19,16 @@ const recorder = rs.hoisted(() => {
 export const pubSubPubs = recorder.pubs;
 
 /**
+ * Invoke whatever handler is currently subscribed to `topic` - this recorder's
+ * `pub` only logs calls (see pubSubPubs above), it doesn't invoke subscribers,
+ * so tests exercising a `PubSub.default.sub(topic, ...)` callback drive it
+ * through here instead of a real `pub()` call.
+ */
+export function firePubSub(topic: string, ...args: unknown[]) {
+    recorder.handlers.get(topic)?.(...args);
+}
+
+/**
  * Spy standing in for the real removeFromReferenceChain - the timeline's
  * context-menu delete handler is tested for its own wiring (calls it inside
  * a Transaction with the right node, reacts to its return value) here; the

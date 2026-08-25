@@ -28,6 +28,7 @@ rs.mock("../src/project/tree/treeItem.module.css", () => ({
 
 // Mock core: GeometryNode marker for instanceof checks, immediate Transaction, no-op Binding
 import {
+    firePubSub,
     pubSubPubs,
     removeFromReferenceChainCalls,
     setRemoveFromReferenceChainResult,
@@ -129,6 +130,11 @@ function makeDoc(rootNode: unknown): DocHarness {
             setSelectedNodes: rs.fn((_nodes: INode[], _ctrl: boolean) => 0),
         } as unknown as MockDocumentOverrides["selection"],
     });
+    // Spy so preview tests can assert which nodes got shown/hidden without
+    // touching model state - the default mock context.setVisible is a no-op.
+    (doc.visual.context as unknown as { setVisible: unknown }).setVisible = rs.fn(
+        (_node: unknown, _visible: boolean) => {},
+    );
     return Object.assign(doc, {
         emitNodeChanged: (records: NodeRecord[]) => {
             nodeObservers.forEach((h) => {
@@ -501,6 +507,127 @@ describe("TimelineTrack", () => {
 
             expect(pubSubPubs).toContainEqual({ topic: "showToast", args: ["toast.deleteFeature.blocked"] });
             expect(editFixture.doc.visual.update).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("timeline preview (rollback)", () => {
+        let chainFixture: ChainFixture;
+
+        beforeEach(() => {
+            fixture = undefined as unknown as Fixture;
+            chainFixture = undefined as unknown as ChainFixture;
+        });
+
+        afterEach(() => {
+            chainFixture?.track.remove();
+            chainFixture?.track.dispose();
+            document.body.innerHTML = "";
+        });
+
+        function setVisibleSpy(f: ChainFixture) {
+            return f.doc.visual.context.setVisible as unknown as ReturnType<typeof rs.fn>;
+        }
+
+        test("clicking a middle item shows it and hides everything after it, leaving what's before untouched", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+
+            expect(spy).toHaveBeenCalledWith(chainFixture.model2, true);
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, false);
+            expect(spy).not.toHaveBeenCalledWith(chainFixture.model1, expect.anything());
+        });
+
+        test("clicking a later item replaces the previous preview instead of stacking", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const item3 = chainFixture.track.children[2] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click(); // hides model3
+            spy.mockClear();
+            item3.click(); // nothing after model3 - model3's own hide from before must be undone
+
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
+        });
+
+        test("ctrl-click (multi-select) does not activate a preview", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+
+            expect(spy).not.toHaveBeenCalled();
+        });
+
+        test("closeCommandContext restores the preview to the real, current visibility", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+            spy.mockClear();
+            firePubSub("closeCommandContext");
+
+            // model3.visible/parentVisible are both still true - restore renders that.
+            expect(spy).toHaveBeenCalledWith(chainFixture.model2, true);
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
+        });
+
+        test("a structural tree change restores the preview before applying itself", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+            spy.mockClear();
+            chainFixture.doc.emitNodeChanged([
+                { node: chainFixture.model3, newParent: undefined } as unknown as NodeRecord,
+            ]);
+
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
+        });
+
+        test("dispose restores an active preview", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+            spy.mockClear();
+            chainFixture.track.remove();
+            chainFixture.track.dispose();
+
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
+
+            // dispose() already ran above (and nils out `document`) - prevent the
+            // outer afterEach from disposing this fixture a second time.
+            chainFixture = undefined as unknown as ChainFixture;
+        });
+
+        test("double-clicking a feature previews it too", () => {
+            const model1 = new MockNode("Box");
+            const model2 = new MockEditableNode("Fillet");
+            model2.editCommandKey = "modify.edgeCornerEdit";
+            const model3 = new MockNode("Rectangle");
+            model1.nextSibling = model2 as unknown as MockNode;
+            (model2 as unknown as MockNode).nextSibling = model3;
+            const root = { firstChild: model1, nextSibling: undefined };
+            const doc = makeDoc(root);
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            const spy = doc.visual.context.setVisible as unknown as ReturnType<typeof rs.fn>;
+
+            const item2 = track.children[1] as HTMLElement;
+            item2.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+            expect(spy).toHaveBeenCalledWith(model3, false);
+
+            track.remove();
+            track.dispose();
         });
     });
 
