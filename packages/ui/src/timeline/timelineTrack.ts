@@ -7,6 +7,8 @@ import {
     type INode,
     type INodeLinkedList,
     type NodeRecord,
+    PubSub,
+    ReferenceShapeNode,
 } from "@chili3d/core";
 import { TimelineItem } from "./timelineItem";
 import style from "./timelineTrack.module.css";
@@ -33,12 +35,14 @@ export class TimelineTrack extends HTMLElement {
         this.document.modelManager.addNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.sub(this.handleSelectionChanged);
         this.addEventListener("click", this.onClick);
+        this.addEventListener("dblclick", this.onDoubleClick);
     }
 
     disconnectedCallback(): void {
         this.document.modelManager.removeNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
         this.removeEventListener("click", this.onClick);
+        this.removeEventListener("dblclick", this.onDoubleClick);
     }
 
     dispose(): void {
@@ -125,6 +129,18 @@ export class TimelineTrack extends HTMLElement {
         const item = this.getTimelineItem(event.target as HTMLElement | null);
         if (!item) return;
         this.document.selection.setSelectedNodes([item.node], event.ctrlKey);
+    };
+
+    /** Double-clicking a feature that declares an editCommandKey re-opens its re-pick flow. */
+    private readonly onDoubleClick = (event: MouseEvent) => {
+        const item = this.getTimelineItem(event.target as HTMLElement | null);
+        if (!item) return;
+        const node = item.node;
+        if (!(node instanceof ReferenceShapeNode)) return;
+        const commandKey = node.editCommandKey;
+        if (!commandKey) return;
+        this.document.selection.setSelectedNodes([node], false);
+        PubSub.default.pub("executeCommand", commandKey);
     };
 
     private getTimelineItem(el: HTMLElement | null): TimelineItem | undefined {

@@ -1,6 +1,7 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
+import type { CommandKeys } from "../command";
 import { VisualConfig } from "../config";
 import type { IDocument } from "../document";
 import { type IEqualityComparer, Logger, PubSub, Result } from "../foundation";
@@ -230,6 +231,17 @@ export abstract class ParameterShapeNode extends ShapeNode {
  * upstream - so edits propagate downstream automatically.
  */
 export abstract class ReferenceShapeNode extends ParameterShapeNode implements IGraphNode {
+    /**
+     * The command that re-picks this node's references in place, if it has
+     * one. A double-click on this node's timeline/tree entry invokes it,
+     * pre-selecting this node so the command can find its target - see
+     * CommandService.executeCommand. undefined means the node has no
+     * re-pick flow yet.
+     */
+    get editCommandKey(): CommandKeys | undefined {
+        return undefined;
+    }
+
     protected resolveInput(id: string): ShapeNode | undefined {
         const node = this.document.modelManager.findNode((n) => n.id === id);
         return node instanceof ShapeNode ? node : undefined;

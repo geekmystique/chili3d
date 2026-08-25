@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     I18n,
     type I18nKeys,
     type IDocument,
@@ -37,6 +38,10 @@ export class EdgeCornerNode extends ReferenceShapeNode {
         return this.operateType === "fillet" ? "body.fillet" : "body.chamfer";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.edgeCornerEdit";
+    }
+
     @serialize()
     get operateType(): EdgeCornerOperateType {
         return this.getPrivateValue("operateType");
@@ -67,6 +72,18 @@ export class EdgeCornerNode extends ReferenceShapeNode {
         // operateType is set above, so it always picks the same branch. Redo it
         // now that display() can tell fillet and chamfer apart.
         this.setPrivateValue("name", I18n.translate(this.display()));
+    }
+
+    /**
+     * Re-point this feature at a new edge selection and/or value, keeping the
+     * same base node, and recompute once. Used by the "re-pick" edit flow to
+     * redirect an existing feature without deleting and recreating it (which
+     * would break anything downstream that references it).
+     */
+    updateSelection(edgeIndexes: number[], value: number) {
+        this.setProperty("edgeIndexes", edgeIndexes);
+        this.setProperty("value", value);
+        this.setShape(this.generateShape());
     }
 
     override generateShape(): Result<IShape> {

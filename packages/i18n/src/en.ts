@@ -106,6 +106,7 @@ export default {
         "command.modify.brushRemove": "Brush Remove",
         "command.modify.chamfer": "Chamfer",
         "command.modify.deleteNode": "Delete Node",
+        "command.modify.edgeCornerEdit": "Edit Fillet/Chamfer",
         "command.modify.explode": "Explode",
         "command.modify.extend": "Extend",
         "command.modify.fillet": "Fillet",

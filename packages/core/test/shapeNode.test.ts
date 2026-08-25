@@ -321,5 +321,10 @@ describe("shapeNode", () => {
                 base.shape = Result.ok(new MockShape());
             }).not.toThrow();
         });
+
+        test("should have no editCommandKey by default", () => {
+            const ref = new TestReferenceNode(doc, base.id);
+            expect(ref.editCommandKey).toBeUndefined();
+        });
     });
 });

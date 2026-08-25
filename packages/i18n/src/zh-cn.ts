@@ -106,6 +106,7 @@ export default {
         "command.modify.brushRemove": "删除画笔",
         "command.modify.chamfer": "倒角",
         "command.modify.deleteNode": "删除",
+        "command.modify.edgeCornerEdit": "编辑圆角/倒角",
         "command.modify.explode": "分解",
         "command.modify.extend": "延伸",
         "command.modify.fillet": "圆角",

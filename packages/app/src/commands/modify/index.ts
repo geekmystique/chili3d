@@ -6,6 +6,7 @@ export * from "./break";
 export * from "./brush";
 export * from "./chamfer";
 export * from "./edgeCornerCommand";
+export * from "./edgeCornerEdit";
 export * from "./explode";
 export * from "./extend";
 export * from "./fillet";

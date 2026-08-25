@@ -108,6 +108,7 @@ export default {
         "command.modify.brushRemove": "Удалить шаблон",
         "command.modify.chamfer": "Шампфер",
         "command.modify.deleteNode": "Удалить узел",
+        "command.modify.edgeCornerEdit": "Изменить скругление/фаску",
         "command.modify.explode": "Резвести",
         "command.modify.fillet": "Заполнить",
         "command.modify.mirror": "Отразить",

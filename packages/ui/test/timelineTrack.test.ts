@@ -25,14 +25,14 @@ rs.mock("../src/project/tree/treeItem.module.css", () => ({
 }));
 
 // Mock core: GeometryNode marker for instanceof checks, immediate Transaction, no-op Binding
-import "./_helpers/mockCoreTimeline";
+import { pubSubPubs } from "./_helpers/mockCoreTimeline";
 
 // Mock element helpers
 import "./_helpers/mockElement";
 
 // Core value imports must come AFTER the mock helper — importing them earlier would
 // load the real "@chili3d/core" before the mock registers.
-import { type DependencyGraph, GeometryNode } from "@chili3d/core";
+import { type DependencyGraph, GeometryNode, ReferenceShapeNode } from "@chili3d/core";
 import { TimelineTrack } from "../src/timeline/timelineTrack";
 
 type PropertyHandler = (property: string, model: unknown) => void;
@@ -67,6 +67,36 @@ class MockNode {
 // A plain object (not linked) stands in for the document's root folder, which is
 // never itself a GeometryNode.
 Object.setPrototypeOf(MockNode.prototype, GeometryNode.prototype);
+
+/**
+ * A MockNode that also qualifies as `instanceof ReferenceShapeNode`, with a
+ * settable `editCommandKey` - stands in for a feature node (EdgeCornerNode,
+ * say) in double-click tests. Defined independently of MockNode's own
+ * prototype chain (rather than via `extends`) so its prototype can be
+ * re-parented onto the mocked ReferenceShapeNode without losing MockNode's
+ * onPropertyChanged/removePropertyChanged, which live on MockNode.prototype.
+ */
+class MockEditableNode {
+    visible = true;
+    parentVisible = true;
+    parent: MockNode | undefined;
+    nextSibling: MockNode | undefined;
+    editCommandKey: string | undefined;
+
+    constructor(
+        readonly name: string,
+        readonly id: string = name,
+    ) {}
+
+    private handlers = new Set<PropertyHandler>();
+    onPropertyChanged(handler: PropertyHandler) {
+        this.handlers.add(handler);
+    }
+    removePropertyChanged(handler: PropertyHandler) {
+        this.handlers.delete(handler);
+    }
+}
+Object.setPrototypeOf(MockEditableNode.prototype, ReferenceShapeNode.prototype);
 
 type NodeObserver = (records: NodeRecord[]) => void;
 
@@ -254,6 +284,81 @@ describe("TimelineTrack", () => {
             fixture.track.click();
 
             expect(fixture.doc.selection.setSelectedNodes).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("double-click", () => {
+        interface EditableFixture {
+            doc: ReturnType<typeof makeDoc>;
+            model2: MockEditableNode;
+            track: TimelineTrack;
+        }
+
+        let editFixture: EditableFixture | undefined;
+
+        function createEditableFixture(editCommandKey: string | undefined): EditableFixture {
+            const model1 = new MockNode("Box");
+            const model2 = new MockEditableNode("Fillet");
+            model2.editCommandKey = editCommandKey;
+            model1.nextSibling = model2 as unknown as MockNode;
+            const root = { firstChild: model1, nextSibling: undefined };
+
+            const doc = makeDoc(root);
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            return { doc, model2, track };
+        }
+
+        beforeEach(() => {
+            fixture = undefined as unknown as Fixture;
+            editFixture = undefined;
+            pubSubPubs.length = 0;
+        });
+
+        afterEach(() => {
+            editFixture?.track.remove();
+            editFixture?.track.dispose();
+            document.body.innerHTML = "";
+        });
+
+        test("should select the node and publish executeCommand when it declares an editCommandKey", () => {
+            editFixture = createEditableFixture("modify.edgeCornerEdit");
+            const item2 = editFixture.track.children[1] as HTMLElement;
+
+            item2.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+            expect(editFixture.doc.selection.setSelectedNodes).toHaveBeenCalledWith(
+                [editFixture.model2],
+                false,
+            );
+            expect(pubSubPubs).toContainEqual({ topic: "executeCommand", args: ["modify.edgeCornerEdit"] });
+        });
+
+        test("should do nothing when the node has no editCommandKey", () => {
+            editFixture = createEditableFixture(undefined);
+            const item2 = editFixture.track.children[1] as HTMLElement;
+
+            item2.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+            expect(editFixture.doc.selection.setSelectedNodes).not.toHaveBeenCalled();
+            expect(pubSubPubs.some((p: { topic: string }) => p.topic === "executeCommand")).toBe(false);
+        });
+
+        test("should ignore a plain (non-reference) node", () => {
+            fixture = createFixture();
+            const item1 = fixture.track.children[0] as HTMLElement;
+
+            item1.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+            expect(fixture.doc.selection.setSelectedNodes).not.toHaveBeenCalled();
+        });
+
+        test("should ignore a double-click that doesn't hit an item", () => {
+            editFixture = createEditableFixture("modify.edgeCornerEdit");
+
+            editFixture.track.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+            expect(editFixture.doc.selection.setSelectedNodes).not.toHaveBeenCalled();
         });
     });
 

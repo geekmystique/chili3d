@@ -101,6 +101,7 @@ export const I18N_KEYS = [
     "command.modify.brushRemove",
     "command.modify.chamfer",
     "command.modify.deleteNode",
+    "command.modify.edgeCornerEdit",
     "command.modify.explode",
     "command.modify.extend",
     "command.modify.fillet",

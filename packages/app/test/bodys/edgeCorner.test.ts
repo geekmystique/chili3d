@@ -138,6 +138,64 @@ describe("EdgeCornerNode", () => {
         });
     });
 
+    describe("editCommandKey", () => {
+        test("should point at the edgeCornerEdit command", () => {
+            expect(makeNode().editCommandKey).toBe("modify.edgeCornerEdit");
+        });
+    });
+
+    describe("updateSelection", () => {
+        test("should replace edgeIndexes/value and recompute once, against the new inputs", () => {
+            const calls: unknown[][] = [];
+            setupShapeFactoryMock({
+                fillet: (shape: unknown, edges: unknown, radius: unknown) => {
+                    calls.push([shape, edges, radius]);
+                    return Result.ok(createMockShape());
+                },
+            });
+
+            const node = makeNode("fillet", 5);
+            expect(node.shape.isOk).toBe(true);
+            expect(calls.length).toBe(1);
+
+            node.updateSelection([3, 4], 9);
+
+            expect(node.edgeIndexes).toEqual([3, 4]);
+            expect(node.value).toBe(9);
+            expect(calls.length).toBe(2);
+            expect(calls[1]).toEqual([baseNode.shape.value, [3, 4], 9]);
+        });
+
+        test("should propagate to a downstream node referencing it", () => {
+            let downstreamCalls = 0;
+            setupShapeFactoryMock({
+                fillet: () => Result.ok(createMockShape()),
+                chamfer: () => {
+                    downstreamCalls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+
+            const node = makeNode("fillet", 5);
+            nodes.push(node);
+            const downstream = new EdgeCornerNode({
+                document: doc,
+                operateType: "chamfer",
+                baseNodeId: node.id,
+                edgeIndexes: [0],
+                value: 1,
+            });
+            nodes.push(downstream);
+
+            expect(downstream.shape.isOk).toBe(true);
+            expect(downstreamCalls).toBe(1);
+
+            node.updateSelection([3, 4], 9);
+
+            expect(downstreamCalls).toBe(2);
+        });
+    });
+
     describe("serialization", () => {
         test("should round-trip operateType/baseNodeId/edgeIndexes/value", () => {
             const node = makeNode("chamfer", 7);
