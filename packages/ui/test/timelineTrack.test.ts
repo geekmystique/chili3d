@@ -591,6 +591,34 @@ describe("TimelineTrack", () => {
             expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
         });
 
+        test("editing the previewed node's own property (e.g. via the Properties panel) restores the preview", () => {
+            // A direct property edit (length, radius, ...) never runs a command,
+            // so closeCommandContext never fires for it - only the node's own
+            // onPropertyChanged reliably signals this kind of edit.
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+            spy.mockClear();
+            chainFixture.model2.emit("length");
+
+            expect(spy).toHaveBeenCalledWith(chainFixture.model2, true);
+            expect(spy).toHaveBeenCalledWith(chainFixture.model3, true);
+        });
+
+        test("editing an unrelated (non-previewed) node's property does not restore the preview", () => {
+            chainFixture = createChainFixture();
+            const item2 = chainFixture.track.children[1] as HTMLElement;
+            const spy = setVisibleSpy(chainFixture);
+
+            item2.click();
+            spy.mockClear();
+            chainFixture.model1.emit("name");
+
+            expect(spy).not.toHaveBeenCalled();
+        });
+
         test("dispose restores an active preview", () => {
             chainFixture = createChainFixture();
             const item2 = chainFixture.track.children[1] as HTMLElement;

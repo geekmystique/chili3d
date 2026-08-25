@@ -100,11 +100,17 @@ export class TimelineTrack extends HTMLElement {
 
         this.previewedNode = node;
         this.previewHiddenNodes = after;
+        // Editing this node directly through the Properties panel (e.g. a
+        // length or radius) never runs a command, so closeCommandContext
+        // never fires for it - only this node's own property change reliably
+        // signals "the user just edited what they're looking at in the past".
+        node.onPropertyChanged(this.onPreviewedNodeChanged);
     };
 
     /** Drop the rollback preview, if any, and re-render every node it touched at its real visibility. */
     private readonly restorePreview = () => {
         if (!this.previewedNode) return;
+        this.previewedNode.removePropertyChanged(this.onPreviewedNodeChanged);
         const context = this.document.visual.context;
         const restore = (n: GeometryNode) => context.setVisible(n, n.visible && n.parentVisible);
         restore(this.previewedNode);
@@ -112,6 +118,8 @@ export class TimelineTrack extends HTMLElement {
         this.previewedNode = undefined;
         this.previewHiddenNodes = [];
     };
+
+    private readonly onPreviewedNodeChanged = () => this.restorePreview();
 
     private collectExisting(node: INode, result: GeometryNode[] = []): GeometryNode[] {
         if (node instanceof GeometryNode) result.push(node);
