@@ -29,6 +29,7 @@ export class TimelineTrack extends HTMLElement {
         this.collectExisting(document.modelManager.rootNode).forEach((node) => {
             this.addItem(node);
         });
+        this.reorderToMatchTree();
     }
 
     connectedCallback(): void {
@@ -67,7 +68,6 @@ export class TimelineTrack extends HTMLElement {
         if (this.nodeMap.has(node)) return;
         const item = new TimelineItem(this.document, node);
         this.nodeMap.set(node, item);
-        this.append(item);
     }
 
     private removeItem(node: GeometryNode) {
@@ -86,7 +86,22 @@ export class TimelineTrack extends HTMLElement {
                 this.removeItem(record.node);
             }
         });
+        this.reorderToMatchTree();
     };
+
+    /**
+     * DOM append() moves an already-attached element rather than duplicating
+     * it, so walking every known item in tree order and re-appending it is
+     * an O(n) way to keep the strip's visual order in sync with the tree -
+     * needed because add/insertAfter/move can land a node anywhere, not just
+     * at the end.
+     */
+    private reorderToMatchTree(): void {
+        this.collectExisting(this.document.modelManager.rootNode).forEach((node) => {
+            const item = this.nodeMap.get(node);
+            if (item) this.append(item);
+        });
+    }
 
     private readonly handleSelectionChanged = (selected: INode[]) => {
         const related = this.collectRelatedIds(selected);

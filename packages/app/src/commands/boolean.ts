@@ -50,7 +50,14 @@ export abstract class BooleanOperate extends MultistepCommand {
                 return;
             }
 
-            this.document.modelManager.rootNode.add(node);
+            // Insert right after the last consumed node so the boolean lands at its
+            // logical spot in the tree/timeline, not always appended at the end.
+            const anchor = toolNodes.length > 0 ? toolNodes[toolNodes.length - 1] : baseNode;
+            if (anchor.parent === this.document.modelManager.rootNode) {
+                this.document.modelManager.rootNode.insertAfter(anchor, node);
+            } else {
+                this.document.modelManager.rootNode.add(node);
+            }
             // Hide rather than delete the consumed nodes - the boolean node keeps
             // a live reference to them, so deleting would break that reference.
             baseNode.visible = false;

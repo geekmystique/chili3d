@@ -42,6 +42,7 @@ class MockNode {
     parentVisible = true;
     parent: MockNode | undefined;
     nextSibling: MockNode | undefined;
+    firstChild: MockNode | undefined;
 
     constructor(
         readonly name: string,
@@ -206,6 +207,9 @@ describe("TimelineTrack", () => {
         test("should add a new item on a node-added record", () => {
             fixture = createFixture();
             const model3 = new MockNode("Chamfer");
+            // A real add() links the node into the tree before firing the record -
+            // mirror that here so the post-record tree walk finds it too.
+            fixture.model2.firstChild = model3;
 
             fixture.doc.emitNodeChanged([
                 { node: model3, newParent: fixture.model2 } as unknown as NodeRecord,
@@ -243,6 +247,22 @@ describe("TimelineTrack", () => {
             ]);
 
             expect(fixture.track.querySelectorAll("timeline-item").length).toBe(2);
+        });
+
+        test("should reorder items to match tree order, not append order, when a node is spliced in mid-chain", () => {
+            // A retroactive feature (e.g. a fillet added after-the-fact) is linked into
+            // the tree between model1 and model2, not at the end.
+            fixture = createFixture();
+            const model3 = new MockNode("RetroactiveFillet");
+            fixture.model1.nextSibling = model3;
+            model3.nextSibling = fixture.model2;
+
+            fixture.doc.emitNodeChanged([
+                { node: model3, newParent: fixture.model1 } as unknown as NodeRecord,
+            ]);
+
+            const items = Array.from(fixture.track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([fixture.model1, model3, fixture.model2]);
         });
     });
 

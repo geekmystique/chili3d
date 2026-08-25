@@ -405,10 +405,13 @@ describe("FilletCommand", () => {
 
             // shapeFactory.fillet(node.shape.value, edges, radius) was called directly - no transform.
             expect(shape.calls.get("transformedMul")).toBeUndefined();
-            expect(parent.added).toHaveLength(1);
+            // inserted right after solidNode, not appended, so it lands at its
+            // logical spot in the tree/timeline.
+            expect(parent.insertedAfter).toHaveLength(1);
             expect(parent.removed).toHaveLength(0); // hidden, not removed - the reference needs it
 
-            const added = parent.added[0] as any;
+            const { target, node: added } = parent.insertedAfter[0] as any;
+            expect(target).toBe(solidNode);
             expect(added.baseNodeId).toBe(solidNode.id);
             expect(added.edgeIndexes).toEqual([3, 7]);
             expect(solidNode.visible).toBe(false);
@@ -436,7 +439,7 @@ describe("FilletCommand", () => {
 
                 (cmd as any).executeMainTask();
 
-                const newFillet = parent.added[0] as EdgeCornerNode;
+                const newFillet = parent.insertedAfter[0].node as EdgeCornerNode;
                 expect(downstream.baseNodeId).toBe(newFillet.id);
                 // newFillet is no longer the end of the chain - downstream is - so it hides itself.
                 expect(newFillet.visible).toBe(false);

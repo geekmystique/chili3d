@@ -61,6 +61,21 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
                 if (this.createdNode) spliceIntoReferenceChain(this.document, node, this.createdNode);
             });
         }
+        this.repositionAfterSection();
+    }
+
+    /**
+     * The new Extrude was appended to the tree by the shared CreateCommand
+     * flow before afterNodeCreated ran. Move it to sit right after its
+     * section node instead, so it lands at its logical spot in the
+     * tree/timeline rather than always at the end.
+     */
+    private repositionAfterSection(): void {
+        const createdNode = this.createdNode;
+        if (!createdNode?.parent) return;
+        const section = this.document.modelManager.findNode((n) => n.id === createdNode.sectionNodeId);
+        if (!section?.parent) return;
+        createdNode.parent.move(createdNode, section.parent, section);
     }
 
     protected override getSteps(): IStep[] {

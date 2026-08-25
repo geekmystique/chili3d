@@ -183,7 +183,8 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
             return;
         }
 
-        (node.parent ?? this.document.modelManager.rootNode).add(featureNode);
+        const container = node.parent ?? this.document.modelManager.rootNode;
+        container.insertAfter(node, featureNode);
         node.visible = false;
         // node may already feed other features (a boolean, say) - point those at
         // the new fillet/chamfer instead of the now-hidden, un-corner-ed node.

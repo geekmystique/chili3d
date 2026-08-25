@@ -250,6 +250,37 @@ describe("BooleanOperate (via BooleanCommon)", () => {
             }
         });
 
+        test("should insert the new node right after the last tool node when both are direct children of rootNode", () => {
+            const restoreApp = ensureGlobalStubApp();
+            const restoreTx = stubTransactionRun();
+            const { restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
+            try {
+                const cmd = new BooleanCommon();
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                baseNode.parent = rootNode as any;
+                toolNode.parent = rootNode as any;
+
+                seedStepDatas(cmd, [
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
+                ]);
+
+                (cmd as any).executeMainTask();
+
+                expect(rootNode.added).toHaveLength(0);
+                expect(rootNode.insertedAfter).toHaveLength(1);
+                const { target, node } = rootNode.insertedAfter[0] as any;
+                expect(target).toBe(toolNode);
+                expect(node).toBeInstanceOf(BooleanNode);
+            } finally {
+                restoreFactory();
+                restoreTx();
+                restoreApp();
+            }
+        });
+
         test("should publish toast when boolean operation fails", () => {
             const restoreApp = ensureGlobalStubApp();
             const restoreTx = stubTransactionRun();

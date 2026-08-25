@@ -10,7 +10,7 @@ import {
     ShapeTypes,
     XYZ,
 } from "@chili3d/core";
-import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import { afterAll, beforeAll, describe, expect, rs, test } from "@rstest/core";
 import { ExtrudeNode } from "../../../src/bodys/extrude";
 import { ExtrudeCommand } from "../../../src/commands/create/extrude";
 import {
@@ -28,6 +28,16 @@ beforeAll(() => {
     restoreApp = ensureGlobalStubApp();
 });
 afterAll(() => restoreApp());
+
+function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
+    const shape = mockShape({ shapeType });
+    return new EditableShapeNode({
+        document: doc,
+        name: "rect",
+        shape: shape as unknown as IShape,
+        materialId: "mat-1",
+    });
+}
 
 describe("ExtrudeCommand", () => {
     test("should have command metadata", () => {
@@ -118,16 +128,6 @@ describe("ExtrudeCommand", () => {
     });
 
     describe("afterNodeCreated", () => {
-        function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
-            const shape = mockShape({ shapeType });
-            return new EditableShapeNode({
-                document: doc,
-                name: "rect",
-                shape: shape as unknown as IShape,
-                materialId: "mat-1",
-            });
-        }
-
         test("should hide, not delete, the whole-shape source node when deleteObjects is true", () => {
             const cmd = new ExtrudeCommand();
             const { doc } = wireCommand(cmd);
@@ -229,6 +229,66 @@ describe("ExtrudeCommand", () => {
                     value: originalFactory,
                 });
             }
+        });
+    });
+
+    describe("repositionAfterSection", () => {
+        test("should move the new Extrude to sit right after its section node in the tree", () => {
+            const cmd = new ExtrudeCommand();
+            const { doc } = wireCommand(cmd);
+            const sectionParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const sectionNode = liveSectionNode(doc, ShapeTypes.face);
+            sectionNode.parent = sectionParent;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                [sectionNode].find(predicate);
+
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    {
+                        shape: {
+                            shapeType: ShapeTypes.face,
+                            normal: () => [XYZ.zero, XYZ.unitZ],
+                        } as Partial<IShape>,
+                        node: sectionNode,
+                        point: XYZ.zero,
+                    },
+                ]),
+                pointStepResult({ point: new XYZ({ x: 0, y: 0, z: 5 }) }),
+            ]);
+
+            const newExtrude = (cmd as any).geometryNode();
+            const extrudeParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            newExtrude.parent = extrudeParent;
+
+            const moveSpy = rs.spyOn(extrudeParent, "move");
+            (cmd as any).afterNodeCreated();
+
+            expect(moveSpy).toHaveBeenCalledWith(newExtrude, sectionParent, sectionNode);
+        });
+
+        test("should do nothing when the section node cannot be found", () => {
+            const cmd = new ExtrudeCommand();
+            const { doc } = wireCommand(cmd);
+            (doc.modelManager as any).findNode = () => undefined;
+
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    {
+                        shape: {
+                            shapeType: ShapeTypes.face,
+                            normal: () => [XYZ.zero, XYZ.unitZ],
+                        } as Partial<IShape>,
+                        node: { id: "missing" },
+                        point: XYZ.zero,
+                    },
+                ]),
+                pointStepResult({ point: new XYZ({ x: 0, y: 0, z: 5 }) }),
+            ]);
+
+            const newExtrude = (cmd as any).geometryNode();
+            newExtrude.parent = doc.modelManager.rootNode;
+
+            expect(() => (cmd as any).afterNodeCreated()).not.toThrow();
         });
     });
 
