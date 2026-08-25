@@ -35,10 +35,17 @@
         background-color: var(--viewport-background-color);
         flex: 1 1 auto;
         width: 0;
+        display: flex;
+        flex-direction: column;
 
         .viewport {
-            height: 100%;
+            flex: 1 1 auto;
+            min-height: 0;
             position: relative;
+        }
+
+        .timeline {
+            flex: 0 0 auto;
         }
     }
 }

@@ -332,6 +332,7 @@ export const I18N_KEYS = [
     "snap.tangent",
     "statusBar.snap",
     "statusBar.tracking",
+    "timeline.header",
     "toast.command.{0}excuting",
     "toast.converter.error",
     "toast.converter.invalidColor",

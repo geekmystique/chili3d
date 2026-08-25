@@ -338,6 +338,7 @@ export default {
         "snap.tangent": "Tangent",
         "statusBar.snap": "Snap",
         "statusBar.tracking": "Tracking",
+        "timeline.header": "Timeline",
         "toast.command.{0}excuting": "Command {0} is runing",
         "toast.converter.error": "Converter error",
         "toast.converter.invalidColor": "The color is invalid",

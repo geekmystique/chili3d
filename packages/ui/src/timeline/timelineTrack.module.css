@@ -1,0 +1,14 @@
+.track {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.selected {
+    background-color: var(--hover-background-color);
+    outline: 1px solid var(--primary-color);
+}

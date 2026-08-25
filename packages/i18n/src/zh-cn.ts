@@ -337,6 +337,7 @@ export default {
         "snap.tangent": "切点",
         "statusBar.snap": "捕捉",
         "statusBar.tracking": "追踪",
+        "timeline.header": "时间线",
         "toast.command.{0}excuting": "{0}命令正在执行",
         "toast.converter.error": "转换错误",
         "toast.converter.invalidColor": "无效的颜色",

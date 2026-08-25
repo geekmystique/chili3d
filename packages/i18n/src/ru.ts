@@ -331,6 +331,7 @@ export default {
         "snap.tangent": "Различия",
         "statusBar.snap": "Привязка",
         "statusBar.tracking": "Отслеживание",
+        "timeline.header": "Хронология",
         "toast.command.{0}excuting": "Комманда {0} выполняется",
         "toast.converter.error": "Ошибка конвертирования",
         "toast.converter.invalidColor": "Не корректный цвет",
