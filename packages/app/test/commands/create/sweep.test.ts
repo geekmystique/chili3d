@@ -37,6 +37,17 @@ function liveNode(doc: IDocument, name: string, shapeType: ShapeType = ShapeType
     });
 }
 
+/**
+ * A minimal pick-owner stand-in: sweepRefFromPick reads owner.shape to
+ * decide whole-shape vs sub-shape, so a bare `{ id }` mock (the previous
+ * pattern here) no longer suffices now that it's driven by comparing the
+ * picked shape's type against the owner's own shape's type, not by an
+ * `.index` on the picked shape.
+ */
+function mockOwner(id: string, shapeType: ShapeType, findSubShapes: (type: number) => IShape[] = () => []) {
+    return { id, shape: Result.ok({ shapeType, findSubShapes } as unknown as IShape) };
+}
+
 describe("Sweep", () => {
     test("should have command metadata", () => {
         const data = (Sweep as any).prototype.data;
@@ -68,14 +79,26 @@ describe("Sweep", () => {
             if (round) cmd.round = true;
             wireCommand(cmd);
             seedStepDatas(cmd, [
-                // path: a wire.
+                // path: a wire, whole-shape pick (owner's own shape is also a wire).
                 shapeStepResult([
-                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "path-1" }, point: XYZ.zero },
+                    {
+                        shape: { shapeType: ShapeTypes.wire },
+                        node: mockOwner("path-1", ShapeTypes.wire),
+                        point: XYZ.zero,
+                    },
                 ]),
                 // profiles: two wires (multiple selection).
                 shapeStepResult([
-                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-1" }, point: XYZ.zero },
-                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-2" }, point: XYZ.zero },
+                    {
+                        shape: { shapeType: ShapeTypes.wire },
+                        node: mockOwner("prof-1", ShapeTypes.wire),
+                        point: XYZ.zero,
+                    },
+                    {
+                        shape: { shapeType: ShapeTypes.wire },
+                        node: mockOwner("prof-2", ShapeTypes.wire),
+                        point: XYZ.zero,
+                    },
                 ]),
             ]);
             return cmd;
@@ -102,22 +125,35 @@ describe("Sweep", () => {
         test("should reference the sub-shape's type and index when a pick is a sub-shape of an existing solid", () => {
             const cmd = new Sweep();
             wireCommand(cmd);
+            // shapeStepResult wraps the shape through mockShape(), which copies
+            // the given properties onto a fresh object - so isEqual can't rely
+            // on reference equality to the original `pickedEdge` object here,
+            // it has to compare a marker property that survives the copy.
+            const pickedEdge = {
+                shapeType: ShapeTypes.edge,
+                marker: "picked",
+                isEqual: (o: { marker?: string }) => o.marker === "picked",
+            };
+            const otherEdge = { shapeType: ShapeTypes.edge, marker: "other", isEqual: () => false };
+            const solidOwner = mockOwner("solid-1", ShapeTypes.solid, (type) =>
+                type === ShapeTypes.edge
+                    ? [otherEdge as unknown as IShape, pickedEdge as unknown as IShape]
+                    : [],
+            );
             seedStepDatas(cmd, [
+                shapeStepResult([{ shape: pickedEdge as any, node: solidOwner, point: XYZ.zero }]),
                 shapeStepResult([
                     {
-                        shape: { shapeType: ShapeTypes.edge, index: 4 } as any,
-                        node: { id: "solid-1" },
+                        shape: { shapeType: ShapeTypes.wire },
+                        node: mockOwner("prof-1", ShapeTypes.wire),
                         point: XYZ.zero,
                     },
-                ]),
-                shapeStepResult([
-                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-1" }, point: XYZ.zero },
                 ]),
             ]);
             const node = (cmd as any).geometryNode();
             expect(node.pathNodeId).toBe("solid-1");
             expect(node.pathShapeType).toBe(ShapeTypes.edge);
-            expect(node.pathIndex).toBe(4);
+            expect(node.pathIndex).toBe(1);
         });
     });
 
@@ -239,7 +275,9 @@ describe("Sweep", () => {
             (doc.modelManager as any).findNode = () => undefined;
 
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: { id: "missing" } }]),
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.wire }, node: mockOwner("missing", ShapeTypes.wire) },
+                ]),
                 shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: liveNode(doc, "profile") }]),
             ]);
 

@@ -8,9 +8,9 @@ import {
     Continuities,
     type Continuity,
     command,
-    EditableShapeNode,
     type IEdge,
     type IShape,
+    type ISubShape,
     type IVertex,
     type IWire,
     PubSub,
@@ -18,12 +18,15 @@ import {
     Result,
     SelectShapeStep,
     type ShapeMeshData,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
     type SnapResult,
+    spliceIntoReferenceChain,
     Transaction,
     VisualConfig,
 } from "@chili3d/core";
+import { LoftNode, sweepRefFromPick } from "../../bodys";
 import { selectedWholeShapeNodes } from "../createCommand";
 
 @command({
@@ -107,12 +110,32 @@ export class LoftCommand extends CancelableCommand {
             }
 
             Transaction.execute(this.document, "loft", () => {
-                this.document.modelManager.addNode(
-                    new EditableShapeNode({ document: this.document, name: "loft", shape: this.shape }),
-                );
+                const refs = this.selectedDatas.map((data) => {
+                    const pick = data.shapes[0];
+                    return sweepRefFromPick(pick.owner.node as ShapeNode, pick.shape);
+                });
+                const node = new LoftNode({
+                    document: this.document,
+                    sectionNodeIds: refs.map((r) => r.nodeId),
+                    sectionShapeTypes: refs.map((r) => r.shapeType),
+                    sectionIndexes: refs.map((r) => r.index),
+                    isSolid: this.isSolid,
+                    isRuled: this.isRuled,
+                    continuity: this.continuity,
+                });
+
+                if (!node.shape.isOk) {
+                    PubSub.default.pub("showToast", "error.default:{0}", node.shape.error);
+                    node.dispose();
+                    return;
+                }
+
+                this.document.modelManager.addNode(node);
+
                 if (this.deleteObjects) {
-                    selectedWholeShapeNodes(this.selectedDatas).forEach((node) => {
-                        node.parent?.remove(node);
+                    selectedWholeShapeNodes(this.selectedDatas).forEach((source) => {
+                        source.visible = false;
+                        spliceIntoReferenceChain(this.document, source, node);
                     });
                 }
             });

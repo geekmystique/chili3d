@@ -23,6 +23,7 @@ export const I18N_KEYS = [
     "body.group",
     "body.imported",
     "body.line",
+    "body.loft",
     "body.meshNode",
     "body.multiShape",
     "body.offset",

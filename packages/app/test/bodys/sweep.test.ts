@@ -11,7 +11,7 @@ import {
 } from "@chili3d/core";
 import { createMockDocument } from "@chili3d/core/test-utils";
 import { beforeEach, describe, expect, rs, test } from "@rstest/core";
-import { SweepedNode } from "../../src/bodys/sweep";
+import { SweepedNode, sweepRefFromPick } from "../../src/bodys/sweep";
 import { createMockShape, createMockWire, setupShapeFactoryMock } from "./_utils";
 
 /**
@@ -326,5 +326,50 @@ describe("SweepedNode", () => {
             expect(result.isOk).toBe(false);
             expect(result.error).toContain("3");
         });
+    });
+});
+
+describe("sweepRefFromPick", () => {
+    test("should treat the pick as whole-shape when the picked type matches the owner's own shape type", () => {
+        const owner = { id: "owner-1", shape: Result.ok(createMockShape({ shapeType: ShapeTypes.wire })) };
+        const ref = sweepRefFromPick(owner as any, { shapeType: ShapeTypes.wire } as any);
+        expect(ref).toEqual({ nodeId: "owner-1", shapeType: ShapeTypes.shape, index: -1 });
+    });
+
+    test("should resolve a sub-shape pick with no .index (e.g. a face's single outer wire) via findSubShapes + isEqual, not a defined .index field", () => {
+        // Regression: a SelectShapeStep narrower than the owner's own shape
+        // type (e.g. vertex|wire|edge, picking a profile off a face) can
+        // return a sub-shape with no `.index` set when there's only one of
+        // its kind - trusting `.index !== undefined` to mean "this is a
+        // sub-shape" silently fell back to the owner's whole (wrong-typed)
+        // shape in that case.
+        const pickedWire: any = { shapeType: ShapeTypes.wire, isEqual: (o: unknown) => o === pickedWire };
+        const owner = {
+            id: "owner-1",
+            shape: Result.ok(
+                createMockShape({
+                    shapeType: ShapeTypes.face,
+                    findSubShapes: (type: number) => (type === ShapeTypes.wire ? [pickedWire] : []),
+                }),
+            ),
+        };
+        const ref = sweepRefFromPick(owner as any, pickedWire);
+        expect(ref).toEqual({ nodeId: "owner-1", shapeType: ShapeTypes.wire, index: 0 });
+    });
+
+    test("should return index -1 when the picked sub-shape can't be located in the owner's own findSubShapes list", () => {
+        const pickedEdge: any = { shapeType: ShapeTypes.edge, isEqual: () => false };
+        const owner = {
+            id: "owner-1",
+            shape: Result.ok(createMockShape({ shapeType: ShapeTypes.solid, findSubShapes: () => [] })),
+        };
+        const ref = sweepRefFromPick(owner as any, pickedEdge);
+        expect(ref).toEqual({ nodeId: "owner-1", shapeType: ShapeTypes.edge, index: -1 });
+    });
+
+    test("should treat the pick as whole-shape when the owner's own shape is an error", () => {
+        const owner = { id: "owner-1", shape: Result.err("no shape") };
+        const ref = sweepRefFromPick(owner as any, { shapeType: ShapeTypes.wire } as any);
+        expect(ref).toEqual({ nodeId: "owner-1", shapeType: ShapeTypes.shape, index: -1 });
     });
 });

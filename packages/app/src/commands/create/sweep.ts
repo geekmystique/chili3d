@@ -34,10 +34,10 @@ export class Sweep extends CreateFromSelectionCommand {
 
     protected override geometryNode(): GeometryNode {
         const pathPick = this.stepDatas[0].shapes[0];
-        const pathRef = sweepRefFromPick((pathPick.owner.node as ShapeNode).id, pathPick.shape);
+        const pathRef = sweepRefFromPick(pathPick.owner.node as ShapeNode, pathPick.shape);
 
         const profileRefs = this.stepDatas[1].shapes.map((pick) =>
-            sweepRefFromPick((pick.owner.node as ShapeNode).id, pick.shape),
+            sweepRefFromPick(pick.owner.node as ShapeNode, pick.shape),
         );
 
         const node = new SweepedNode({

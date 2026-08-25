@@ -31,12 +31,27 @@ export interface SweepRef {
     index: number;
 }
 
-export function sweepRefFromPick(nodeId: string, pickedShape: Partial<ISubShape>): SweepRef {
-    return {
-        nodeId,
-        shapeType: pickedShape.index !== undefined ? (pickedShape.shapeType as ShapeType) : ShapeTypes.shape,
-        index: pickedShape.index ?? -1,
-    };
+/**
+ * Build a SweepRef from a pick: whole-shape when the picked shape's type
+ * matches the owner node's own shape's type (same test selectedWholeShapeNodes
+ * uses), a sub-shape reference otherwise.
+ *
+ * Doesn't trust an `.index` on the picked shape to tell them apart - a
+ * SelectShapeStep that only allows a narrower shape type than the node's own
+ * (e.g. edge/wire/vertex, picking a profile off a solid or a face) can
+ * return a sub-shape with no `.index` set when it's the only one of its kind
+ * (a single-wire face's one outer wire, say) - so a defined index and "this
+ * is a sub-shape" aren't the same thing. Falls back to locating the picked
+ * shape's position in the owner's own findSubShapes() list instead, the
+ * same indexing scheme resolveSweepRefShape reads back.
+ */
+export function sweepRefFromPick(ownerNode: ShapeNode, pickedShape: IShape): SweepRef {
+    if (!ownerNode.shape.isOk || pickedShape.shapeType === ownerNode.shape.value.shapeType) {
+        return { nodeId: ownerNode.id, shapeType: ShapeTypes.shape, index: -1 };
+    }
+    const candidates = ownerNode.shape.value.findSubShapes(pickedShape.shapeType);
+    const index = candidates.findIndex((s) => s.isEqual(pickedShape));
+    return { nodeId: ownerNode.id, shapeType: pickedShape.shapeType, index };
 }
 
 /**

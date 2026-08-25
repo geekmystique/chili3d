@@ -28,6 +28,7 @@ export default {
         "body.group": "组",
         "body.imported": "导入的模型",
         "body.line": "直线",
+        "body.loft": "放样",
         "body.meshNode": "网格节点",
         "body.multiShape": "多形状",
         "body.offset": "偏移",

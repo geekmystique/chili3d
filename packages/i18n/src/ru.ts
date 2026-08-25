@@ -30,6 +30,7 @@ export default {
         "body.group": "Группа",
         "body.imported": "Импортированно",
         "body.line": "Линия",
+        "body.loft": "Лофт",
         "body.meshNode": "Узел структуры",
         "body.multiShape": "Мульти Фигура",
         "body.offset": "Смещение",

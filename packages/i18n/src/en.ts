@@ -28,6 +28,7 @@ export default {
         "body.group": "Group",
         "body.imported": "Imported",
         "body.line": "Line",
+        "body.loft": "Loft",
         "body.meshNode": "Mesh Node",
         "body.multiShape": "Multi Shape",
         "body.offset": "Offset",
