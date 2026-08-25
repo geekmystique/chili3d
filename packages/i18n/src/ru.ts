@@ -36,7 +36,7 @@ export default {
         "body.point": "Точка",
         "body.polygon": "Полигон",
         "body.regularPolygon": "Простой Полигон",
-        "body.extrude": "Призма",
+        "body.extrude": "Выдавливание",
         "body.pyramid": "Пирамида",
         "body.rect": "Прямоугольник",
         "body.revol": "Повернуть",
