@@ -1,17 +1,41 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { ShapeTypes, XYZ } from "@chili3d/core";
-import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+    XYZ,
+} from "@chili3d/core";
+import { afterAll, beforeAll, describe, expect, rs, test } from "@rstest/core";
 import { SweepedNode } from "../../../src/bodys/sweep";
 import { Sweep } from "../../../src/commands/create/sweep";
-import { ensureGlobalStubApp, seedStepDatas, shapeStepResult, wireCommand } from "../commandTestUtils";
+import {
+    ensureGlobalStubApp,
+    mockShape,
+    seedStepDatas,
+    shapeStepResult,
+    type TrackingParent,
+    wireCommand,
+} from "../commandTestUtils";
 
 let restoreApp: () => void;
 beforeAll(() => {
     restoreApp = ensureGlobalStubApp();
 });
 afterAll(() => restoreApp());
+
+function liveNode(doc: IDocument, name: string, shapeType: ShapeType = ShapeTypes.wire) {
+    return new EditableShapeNode({
+        document: doc,
+        name,
+        shape: mockShape({ shapeType }) as unknown as IShape,
+        materialId: "mat-1",
+    });
+}
 
 describe("Sweep", () => {
     test("should have command metadata", () => {
@@ -45,24 +69,27 @@ describe("Sweep", () => {
             wireCommand(cmd);
             seedStepDatas(cmd, [
                 // path: a wire.
-                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, point: XYZ.zero }]),
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "path-1" }, point: XYZ.zero },
+                ]),
                 // profiles: two wires (multiple selection).
                 shapeStepResult([
-                    { shape: { shapeType: ShapeTypes.wire }, point: XYZ.zero },
-                    { shape: { shapeType: ShapeTypes.wire }, point: XYZ.zero },
+                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-1" }, point: XYZ.zero },
+                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-2" }, point: XYZ.zero },
                 ]),
             ]);
             return cmd;
         }
 
-        test("should build a SweepedNode carrying the path and profiles with round=false", () => {
+        test("should build a SweepedNode referencing the path and profile nodes with round=false", () => {
             const cmd = buildSweep(false);
             const node = (cmd as any).geometryNode();
             expect(node).toBeInstanceOf(SweepedNode);
             expect(node.round).toBe(false);
-            expect(Array.isArray(node.profile)).toBe(true);
-            expect(node.profile).toHaveLength(2);
-            expect(node.path).toBeDefined();
+            expect(node.pathNodeId).toBe("path-1");
+            expect(node.profileNodeIds).toEqual(["prof-1", "prof-2"]);
+            expect(node.profileShapeTypes).toEqual([ShapeTypes.shape, ShapeTypes.shape]);
+            expect(node.profileIndexes).toEqual([-1, -1]);
         });
 
         test("should propagate round=true to the SweepedNode", () => {
@@ -72,16 +99,154 @@ describe("Sweep", () => {
             expect(node.round).toBe(true);
         });
 
-        test("should accept edge sections and convert them through ensureWire", () => {
+        test("should reference the sub-shape's type and index when a pick is a sub-shape of an existing solid", () => {
             const cmd = new Sweep();
             wireCommand(cmd);
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: { shapeType: ShapeTypes.edge }, point: XYZ.zero }]),
-                shapeStepResult([{ shape: { shapeType: ShapeTypes.edge }, point: XYZ.zero }]),
+                shapeStepResult([
+                    {
+                        shape: { shapeType: ShapeTypes.edge, index: 4 } as any,
+                        node: { id: "solid-1" },
+                        point: XYZ.zero,
+                    },
+                ]),
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.wire }, node: { id: "prof-1" }, point: XYZ.zero },
+                ]),
             ]);
             const node = (cmd as any).geometryNode();
-            expect(node).toBeInstanceOf(SweepedNode);
-            expect(node.profile).toHaveLength(1);
+            expect(node.pathNodeId).toBe("solid-1");
+            expect(node.pathShapeType).toBe(ShapeTypes.edge);
+            expect(node.pathIndex).toBe(4);
+        });
+    });
+
+    describe("afterNodeCreated", () => {
+        test("should hide, not delete, the whole-shape path and profile source nodes when deleteObjects is true", () => {
+            const cmd = new Sweep();
+            const { doc } = wireCommand(cmd);
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const pathNode = liveNode(doc, "path");
+            pathNode.parent = parent;
+            const profileNode = liveNode(doc, "profile");
+            profileNode.parent = parent;
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: pathNode }]),
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: profileNode }]),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(pathNode.visible).toBe(false);
+            expect(profileNode.visible).toBe(false);
+            expect(parent.removed).toHaveLength(0);
+        });
+
+        test("should leave the source nodes untouched when deleteObjects is false", () => {
+            const cmd = new Sweep();
+            cmd.deleteObjects = false;
+            const { doc } = wireCommand(cmd);
+            const pathNode = liveNode(doc, "path");
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: pathNode }]),
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: liveNode(doc, "profile") }]),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(pathNode.visible).toBe(true);
+        });
+
+        test("should splice a downstream feature onto the new Sweep when the path already has one", () => {
+            const originalFactory = (globalThis as any).app.shapeProvider.factory;
+            Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                configurable: true,
+                value: new Proxy({}, { get: () => () => Result.ok(mockShape()) }),
+            });
+
+            try {
+                const cmd = new Sweep();
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const pathNode = liveNode(doc, "path");
+                pathNode.parent = parent;
+                const profileNode = liveNode(doc, "profile");
+                profileNode.parent = parent;
+
+                const downstream = new SweepedNode({
+                    document: doc,
+                    profileNodeIds: [profileNode.id],
+                    profileShapeTypes: [ShapeTypes.shape],
+                    profileIndexes: [-1],
+                    pathNodeId: pathNode.id,
+                    pathShapeType: ShapeTypes.shape,
+                    pathIndex: -1,
+                    round: false,
+                });
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [pathNode, profileNode, downstream].find(predicate);
+                expect(downstream.shape.isOk).toBe(true); // establishes the pathNode -> downstream DAG edge
+
+                seedStepDatas(cmd, [
+                    shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: pathNode }]),
+                    shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: profileNode }]),
+                ]);
+
+                const newSweep = (cmd as any).geometryNode();
+                parent.add(newSweep);
+                (cmd as any).afterNodeCreated();
+
+                expect(downstream.pathNodeId).toBe(newSweep.id);
+                // newSweep is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newSweep.visible).toBe(false);
+            } finally {
+                Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                    configurable: true,
+                    value: originalFactory,
+                });
+            }
+        });
+    });
+
+    describe("repositionAfterPath", () => {
+        test("should move the new Sweep to sit right after its path node in the tree", () => {
+            const cmd = new Sweep();
+            const { doc } = wireCommand(cmd);
+            const pathParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const pathNode = liveNode(doc, "path");
+            pathNode.parent = pathParent;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                [pathNode].find(predicate);
+
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: pathNode }]),
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: liveNode(doc, "profile") }]),
+            ]);
+
+            const newSweep = (cmd as any).geometryNode();
+            const sweepParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            newSweep.parent = sweepParent;
+
+            const moveSpy = rs.spyOn(sweepParent, "move");
+            (cmd as any).afterNodeCreated();
+
+            expect(moveSpy).toHaveBeenCalledWith(newSweep, pathParent, pathNode);
+        });
+
+        test("should do nothing when the path node cannot be found", () => {
+            const cmd = new Sweep();
+            const { doc } = wireCommand(cmd);
+            (doc.modelManager as any).findNode = () => undefined;
+
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: { id: "missing" } }]),
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: liveNode(doc, "profile") }]),
+            ]);
+
+            const newSweep = (cmd as any).geometryNode();
+            newSweep.parent = doc.modelManager.rootNode;
+
+            expect(() => (cmd as any).afterNodeCreated()).not.toThrow();
         });
     });
 

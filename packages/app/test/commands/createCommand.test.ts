@@ -1,10 +1,19 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { EditableShapeNode, type IDocument, Result, type ShapeType, ShapeTypes, XYZ } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type GeometryNode,
+    type IDocument,
+    type IStep,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+    XYZ,
+} from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
 import { Sweep } from "../../src/commands/create/sweep";
-import { selectedWholeShapeNodes } from "../../src/commands/createCommand";
+import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../../src/commands/createCommand";
 import {
     ensureGlobalStubApp,
     makeParent,
@@ -26,6 +35,22 @@ function shapeNode(document: IDocument, shapeType: ShapeType) {
         name: "node",
         shape: Result.ok(mockShape({ shapeType })),
     });
+}
+
+/**
+ * A bare CreateFromSelectionCommand with no afterNodeCreated override, for
+ * exercising the base class's own default behavior in isolation - a real
+ * command (Sweep, Extrude, Revolve, ...) may override afterNodeCreated to
+ * hide-and-splice into a reference chain instead, so coupling this test to
+ * one of those would break the moment that command grows its own override.
+ */
+class TestCreateFromSelectionCommand extends CreateFromSelectionCommand {
+    protected override geometryNode(): GeometryNode {
+        throw new Error("not used in these tests");
+    }
+    protected override getSteps(): IStep[] {
+        return [];
+    }
 }
 
 describe("selectedWholeShapeNodes", () => {
@@ -68,12 +93,12 @@ describe("selectedWholeShapeNodes", () => {
 
 describe("CreateFromSelectionCommand", () => {
     test("deleteObjects should default to true", () => {
-        const cmd = new Sweep();
+        const cmd = new TestCreateFromSelectionCommand();
         expect(cmd.deleteObjects).toBe(true);
     });
 
     test("afterNodeCreated should remove matched nodes from their parents", () => {
-        const cmd = new Sweep();
+        const cmd = new TestCreateFromSelectionCommand();
         const { doc } = wireCommand(cmd);
         const matched = shapeNode(doc, ShapeTypes.edge);
         const matchedParent = makeParent();
@@ -95,7 +120,7 @@ describe("CreateFromSelectionCommand", () => {
     });
 
     test("afterNodeCreated should keep all nodes when deleteObjects is false", () => {
-        const cmd = new Sweep();
+        const cmd = new TestCreateFromSelectionCommand();
         const { doc } = wireCommand(cmd);
         cmd.deleteObjects = false;
         const node = shapeNode(doc, ShapeTypes.edge);
