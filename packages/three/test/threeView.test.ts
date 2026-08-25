@@ -25,6 +25,7 @@ import {
     Layers,
     type Mesh,
     MeshBasicMaterial,
+    type Object3D,
     OrthographicCamera,
     PerspectiveCamera,
     Raycaster,
@@ -57,6 +58,27 @@ function createViewsArray(): IView[] {
     return arr;
 }
 
+/**
+ * Runs `run`, capturing whatever object array a Raycaster.intersectObjects
+ * call inside it received - findIntersectedNodes builds a real candidate
+ * list but a real intersection hit depends on camera/mouse alignment we
+ * don't set up here, so this observes the candidate list itself instead.
+ */
+function captureRaycastCandidates(run: () => void): Object3D[] {
+    let captured: Object3D[] = [];
+    const original = Raycaster.prototype.intersectObjects;
+    Raycaster.prototype.intersectObjects = function (this: unknown, objects: Object3D[], ...rest: unknown[]) {
+        captured = objects;
+        return (original as any).apply(this, [objects, ...rest]);
+    } as any;
+    try {
+        run();
+    } finally {
+        Raycaster.prototype.intersectObjects = original;
+    }
+    return captured;
+}
+
 function createTestView(overrides?: {
     document?: any;
     content?: ThreeVisualContext;
@@ -70,6 +92,10 @@ function createTestView(overrides?: {
     }
     const context = overrides?.content ?? createThreeMockVisualContext();
     (context as any).scene ??= new Scene();
+    // In the real app ThreeVisual (== document.visual) owns this same context
+    // instance and hands it to ThreeView as `content`; picking code reads it
+    // via `document.visual.context`, so tests need that same wiring.
+    (doc.visual as { context: unknown }).context = context;
     const view = new TestView(doc, context, {
         name: overrides?.name,
         workplane: overrides?.workplane,
@@ -1243,6 +1269,65 @@ describe("ThreeView — findIntersectedNodes with real geometry", () => {
         // Even if no actual raycaster hit, verify that the method iterates correctly
         const result = (view as any).findIntersectedNodes(50, 50);
         expect(Array.isArray(result)).toBe(true);
+    });
+
+    test("initIntersectableShapes excludes a node whose model and rendered .visible are both false", () => {
+        const { view, context } = createTestView();
+        const node = createTestGeometryNode({ visible: false });
+        const geo = new ThreeGeometry(node, context);
+        context.visualShapes.add(geo);
+        geo.updateMatrixWorld();
+        // The mock context's visuals() is a fixed stub ([]); replace it so the
+        // method under test actually sees this geometry, like the real
+        // ThreeVisualContext.visuals() (which walks visualShapes.children).
+        context.visuals = () => [geo];
+
+        const shapes = (view as any).initIntersectableShapes(ShapeTypes.edge);
+
+        expect(shapes).toHaveLength(0);
+    });
+
+    test("initIntersectableShapes includes a node forced visible by the timeline's rollback preview, even though its own .visible is false", () => {
+        // Mirrors visual.context.setVisible(node, true) - the timeline preview
+        // shows a normally-hidden node without touching node.visible itself.
+        const { view, context } = createTestView();
+        const node = createTestGeometryNode({ visible: false });
+        const geo = new ThreeGeometry(node, context);
+        context.visualShapes.add(geo);
+        geo.visible = true; // what visual.context.setVisible(node, true) does under the hood
+        geo.updateMatrixWorld();
+        context.visuals = () => [geo];
+
+        const shapes = (view as any).initIntersectableShapes(ShapeTypes.edge);
+
+        expect(shapes.length).toBeGreaterThan(0);
+    });
+
+    test("findIntersectedNodes excludes a node whose model and rendered .visible are both false", () => {
+        const { view, context } = createTestView();
+        const node = createTestGeometryNode({ visible: false });
+        const geo = new ThreeGeometry(node, context);
+        context.visualShapes.add(geo);
+        geo.updateMatrixWorld();
+        context.visuals = () => [geo];
+
+        const captured = captureRaycastCandidates(() => (view as any).findIntersectedNodes(50, 50));
+
+        expect(captured).toHaveLength(0);
+    });
+
+    test("findIntersectedNodes includes a node forced visible by the timeline's rollback preview, even though its own .visible is false", () => {
+        const { view, context } = createTestView();
+        const node = createTestGeometryNode({ visible: false });
+        const geo = new ThreeGeometry(node, context);
+        context.visualShapes.add(geo);
+        geo.visible = true;
+        geo.updateMatrixWorld();
+        context.visuals = () => [geo];
+
+        const captured = captureRaycastCandidates(() => (view as any).findIntersectedNodes(50, 50));
+
+        expect(captured.length).toBeGreaterThan(0);
     });
 });
 

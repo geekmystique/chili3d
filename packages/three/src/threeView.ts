@@ -901,11 +901,21 @@ export class ThreeView extends Observable implements IView {
         return parent.getSubShapeAndIndex(type, subVisualIndex);
     }
 
+    /**
+     * Pick candidates are gated by each visual's own rendered `.visible` flag
+     * (kept in sync with node.visible && node.parentVisible by
+     * onVisibleChanged/onParentVisibleChanged for every ordinary visibility
+     * change), not by re-deriving that state from the node - a node shown
+     * only via the timeline's rollback preview (visual.context.setVisible
+     * called directly, deliberately bypassing node.visible so scrubbing the
+     * timeline can't create undo history) needs to be pickable too, and
+     * re-deriving from node.visible would disagree with what's on screen.
+     */
     private findIntersectedNodes(mx: number, my: number) {
         let visuals: Object3D[] = [];
         this.document.visual.context.visuals().forEach((x) => {
             if (!x.visible) return;
-            if (x instanceof ThreeVisualObject && x.node.visible && x.node.parentVisible) {
+            if (x instanceof ThreeVisualObject) {
                 visuals.push(...x.wholeVisual());
             } else if (x instanceof ThreeRefSegmentAnnotation) {
                 visuals.push(...x.wholeVisual());
@@ -921,10 +931,11 @@ export class ThreeView extends Observable implements IView {
         return raycaster.intersectObjects(shapes, false);
     }
 
+    /** See findIntersectedNodes above for why this checks the rendered `.visible` flag directly. */
     private initIntersectableShapes(shapeType: ShapeType) {
         let shapes: Object3D[] = [];
         this.document.visual.context.visuals().forEach((x) => {
-            if (x instanceof ThreeVisualObject && x.node.visible && x.node.parentVisible) {
+            if (x instanceof ThreeVisualObject && x.visible) {
                 shapes.push(...x.subShapeVisual(shapeType));
             }
         });
