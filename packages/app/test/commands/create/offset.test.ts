@@ -3,6 +3,7 @@
 
 import { EditableShapeNode, Result, ShapeTypes, XYZ } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import { OffsetNode } from "../../../src/bodys/offset";
 import { OffsetCommand } from "../../../src/commands/create/offset";
 import {
     ensureGlobalStubApp,
@@ -92,16 +93,34 @@ describe("OffsetCommand", () => {
         };
     }
 
+    /**
+     * Wraps an edge shape (from makeEdgeShape) in a live EditableShapeNode
+     * registered in the document, and self-transforming (transformedMul
+     * returns itself) so OffsetNode.generateShape's
+     * base.shape.value.transformedMul(base.transform) resolves back to the
+     * same duck-typed shape the test configured.
+     */
+    function liveEdgeNode(doc: any, edgeShape: any) {
+        edgeShape.transformedMul = () => edgeShape;
+        const node = new EditableShapeNode({ document: doc, name: "edge", shape: Result.ok(edgeShape) });
+        node.parent = doc.modelManager.rootNode;
+        const existingFindNode = doc.modelManager.findNode;
+        doc.modelManager.findNode = (predicate: (n: unknown) => boolean) =>
+            predicate(node) ? node : existingFindNode(predicate);
+        return node;
+    }
+
     describe("executeMainTask (edge path)", () => {
-        test("should add an EditableShapeNode carrying the offset shape to the root", () => {
+        test("should add an OffsetNode referencing the picked node, carrying the offset shape", () => {
             const cmd = new OffsetCommand();
             const { doc } = wireCommand(cmd);
 
             const offsetShape = { shapeType: ShapeTypes.wire };
             const edgeShape = makeEdgeShape(Result.ok(offsetShape as any));
+            const sourceNode = liveEdgeNode(doc, edgeShape);
 
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
+                shapeStepResult([{ shape: edgeShape, node: sourceNode, point: XYZ.zero }]),
                 { type: "input" as const, distance: 5, point: new XYZ({ x: 5, y: 0, z: 0 }) } as any,
             ]);
 
@@ -110,13 +129,14 @@ describe("OffsetCommand", () => {
             const root = doc.modelManager.rootNode as any;
             expect(root.added).toHaveLength(1);
             const node = root.added[0];
-            expect(node).toBeInstanceOf(EditableShapeNode);
+            expect(node).toBeInstanceOf(OffsetNode);
+            expect(node.sectionNodeId).toBe(sourceNode.id);
             expect((node as any).shape.value).toBe(offsetShape);
         });
 
         test("should pass the picked distance into shape.offset()", () => {
             const cmd = new OffsetCommand();
-            wireCommand(cmd);
+            const { doc } = wireCommand(cmd);
 
             const received: number[] = [];
             const edgeShape: any = makeEdgeShape(undefined);
@@ -124,9 +144,10 @@ describe("OffsetCommand", () => {
                 received.push(distance);
                 return Result.ok({ shapeType: ShapeTypes.wire });
             };
+            const sourceNode = liveEdgeNode(doc, edgeShape);
 
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
+                shapeStepResult([{ shape: edgeShape, node: sourceNode, point: XYZ.zero }]),
                 { type: "input" as const, distance: 12, point: new XYZ({ x: 0, y: -12, z: 0 }) } as any,
             ]);
 
@@ -139,8 +160,9 @@ describe("OffsetCommand", () => {
             const cmd = new OffsetCommand();
             const { doc } = wireCommand(cmd);
             const edgeShape = makeEdgeShape(Result.ok({ shapeType: ShapeTypes.wire } as any));
+            const sourceNode = liveEdgeNode(doc, edgeShape);
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
+                shapeStepResult([{ shape: edgeShape, node: sourceNode, point: XYZ.zero }]),
                 { type: "input" as const, distance: 3, point: new XYZ({ x: 3, y: 0, z: 0 }) } as any,
             ]);
 

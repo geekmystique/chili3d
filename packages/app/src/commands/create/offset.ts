@@ -4,26 +4,28 @@
 import {
     Combobox,
     command,
-    EditableShapeNode,
     GeometryUtils,
-    I18n,
     type I18nKeys,
     type IEdge,
     type IFace,
     type IShape,
     type IStep,
+    type ISubShape,
     type IWire,
     type JoinType,
     LengthAtAxisStep,
     MathUtils,
     MultistepCommand,
+    PubSub,
     property,
     SelectShapeStep,
     type ShapeMeshData,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
     type XYZ,
 } from "@chili3d/core";
+import { OffsetNode } from "../../bodys/offset";
 
 @command({
     key: "create.offset",
@@ -47,12 +49,25 @@ export class OffsetCommand extends MultistepCommand {
     protected override executeMainTask() {
         const ax = this.getAxis();
         const distance = this.stepDatas[1].point!.sub(ax.point).dot(ax.direction);
-        const shape = this.createOffsetShape(ax.normal, distance!);
-        const node = new EditableShapeNode({
+
+        const pick = this.stepDatas[0].shapes[0];
+        const sub = pick.shape as Partial<ISubShape>;
+        const node = new OffsetNode({
             document: this.document,
-            name: I18n.translate("command.create.offset"),
-            shape: shape.value,
+            sectionNodeId: (pick.owner.node as ShapeNode).id,
+            sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
+            sectionIndex: sub.index,
+            distance,
+            normal: ax.normal,
+            joinType: this.mapJoinType(),
         });
+
+        if (!node.shape.isOk) {
+            PubSub.default.pub("showToast", "error.default:{0}", node.shape.error);
+            node.dispose();
+            return;
+        }
+
         this.document.modelManager.rootNode.add(node);
         this.document.visual.update();
     }
