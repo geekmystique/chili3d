@@ -1,15 +1,17 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { EditableShapeNode, Matrix4, PubSub, Result, ShapeTypes } from "@chili3d/core";
+import { EditableShapeNode, type IDocument, type IShape, PubSub, Result, ShapeTypes } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import { ThickSolidNode } from "../../../src/bodys/thickSolid";
 import { ThickSolidCommand } from "../../../src/commands/create/thickSolid";
 import {
     ensureGlobalStubApp,
-    makeParent,
+    mockShape,
     seedStepDatas,
-    shapeData,
+    shapeStepResult,
     stubTransactionRun,
+    type TrackingParent,
     wireCommand,
 } from "../commandTestUtils";
 
@@ -18,6 +20,16 @@ beforeAll(() => {
     restoreApp = ensureGlobalStubApp();
 });
 afterAll(() => restoreApp());
+
+function liveFaceNode(doc: IDocument) {
+    const shape = mockShape({ shapeType: ShapeTypes.face });
+    return new EditableShapeNode({
+        document: doc,
+        name: "face-source",
+        shape: shape as unknown as IShape,
+        materialId: "mat-1",
+    });
+}
 
 describe("ThickSolidCommand", () => {
     test("should have command metadata", () => {
@@ -45,133 +57,118 @@ describe("ThickSolidCommand", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should create one EditableShapeNode per selected face and insertAfter each source node", () => {
+        test("should create one ThickSolidNode per selected face, referencing its source node", () => {
             const restoreTx = stubTransactionRun();
             try {
                 const cmd = new ThickSolidCommand();
                 const { doc } = wireCommand(cmd);
-
-                const parentA = makeParent({ id: "parent-a" });
-                const parentB = makeParent({ id: "parent-b" });
-                const nodeA = { parent: parentA, transform: Matrix4.identity() } as any;
-                const nodeB = { parent: parentB, transform: Matrix4.identity() } as any;
+                const parentA = doc.modelManager.rootNode as unknown as TrackingParent;
+                const nodeA = liveFaceNode(doc);
+                nodeA.parent = parentA;
+                const nodeB = liveFaceNode(doc);
+                const parentB = parentA;
+                nodeB.parent = parentB;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [nodeA, nodeB].find(predicate);
 
                 seedStepDatas(cmd, [
-                    {
-                        type: "shape" as const,
-                        shapes: [
-                            shapeData({ shape: { shapeType: ShapeTypes.face }, node: nodeA }),
-                            shapeData({ shape: { shapeType: ShapeTypes.face }, node: nodeB }),
-                        ],
-                    } as any,
+                    shapeStepResult([
+                        { shape: { shapeType: ShapeTypes.face }, node: nodeA },
+                        { shape: { shapeType: ShapeTypes.face }, node: nodeB },
+                    ]),
                 ]);
 
                 (cmd as any).executeMainTask();
 
-                expect(parentA.insertedAfter).toHaveLength(1);
+                expect(parentA.insertedAfter).toHaveLength(2);
                 expect(parentA.insertedAfter[0].target).toBe(nodeA);
-                expect(parentA.insertedAfter[0].node).toBeInstanceOf(EditableShapeNode);
-                expect(parentB.insertedAfter).toHaveLength(1);
-                expect(parentB.insertedAfter[0].target).toBe(nodeB);
-                expect(parentB.insertedAfter[0].node).toBeInstanceOf(EditableShapeNode);
+                expect(parentA.insertedAfter[0].node).toBeInstanceOf(ThickSolidNode);
+                expect((parentA.insertedAfter[0].node as ThickSolidNode).sectionNodeId).toBe(nodeA.id);
+                expect(parentA.insertedAfter[1].target).toBe(nodeB);
+                expect((parentA.insertedAfter[1].node as ThickSolidNode).sectionNodeId).toBe(nodeB.id);
                 expect((doc.visual.update as any).mock.calls.length).toBeGreaterThanOrEqual(1);
             } finally {
                 restoreTx();
             }
         });
 
-        test("should propagate the configured thickness to makeThickSolidBySimple", () => {
+        test("should propagate the configured thickness to the created node", () => {
             const restoreTx = stubTransactionRun();
-            const stubApp = (globalThis as any).app;
-            const originalFactory = stubApp.shapeProvider.factory;
-            const received: number[] = [];
-            stubApp.shapeProvider.factory = {
-                makeThickSolidBySimple: (_shape: unknown, thickness: number) => {
-                    received.push(thickness);
-                    return Result.ok({
-                        shapeType: ShapeTypes.solid,
-                        mesh: { edges: { position: new Float32Array() } },
-                    } as any);
-                },
-            };
             try {
                 const cmd = new ThickSolidCommand();
                 cmd.thickness = 7;
-                wireCommand(cmd);
-                const node = { parent: makeParent(), transform: Matrix4.identity() } as any;
-                seedStepDatas(cmd, [
-                    {
-                        type: "shape" as const,
-                        shapes: [shapeData({ shape: { shapeType: ShapeTypes.face }, node })],
-                    } as any,
-                ]);
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const node = liveFaceNode(doc);
+                node.parent = parent;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [node].find(predicate);
+
+                seedStepDatas(cmd, [shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node }])]);
 
                 (cmd as any).executeMainTask();
 
-                expect(received).toEqual([7]);
+                expect((parent.insertedAfter[0].node as ThickSolidNode).thickness).toBe(7);
             } finally {
-                stubApp.shapeProvider.factory = originalFactory;
                 restoreTx();
             }
         });
 
-        test("should copy the source node transform onto the created model", () => {
+        test("should reference the sub-shape's type and index when the pick is one face of a multi-face pick", () => {
             const restoreTx = stubTransactionRun();
             try {
                 const cmd = new ThickSolidCommand();
-                wireCommand(cmd);
-                const tx = Matrix4.fromTranslation(3, 4, 5);
-                const node = { parent: makeParent(), transform: tx } as any;
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const solidNode = liveFaceNode(doc);
+                solidNode.parent = parent;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [solidNode].find(predicate);
+                // ThickSolidNode.generateShape resolves sectionIndex via findSubShapes.
+                Object.assign(solidNode.shape.value, {
+                    findSubShapes: (type: number) =>
+                        type === ShapeTypes.face ? [{ shapeType: ShapeTypes.face }] : [],
+                });
+
                 seedStepDatas(cmd, [
-                    {
-                        type: "shape" as const,
-                        shapes: [shapeData({ shape: { shapeType: ShapeTypes.face }, node })],
-                    } as any,
+                    shapeStepResult([
+                        { shape: { shapeType: ShapeTypes.face, index: 0 } as any, node: solidNode },
+                    ]),
                 ]);
 
                 (cmd as any).executeMainTask();
 
-                const model = (node.parent as any).insertedAfter[0].node;
-                // transform should be the same matrix object reference as the source node.
-                expect(model.transform).toBe(tx);
+                const created = parent.insertedAfter[0].node as ThickSolidNode;
+                expect(created.sectionNodeId).toBe(solidNode.id);
+                expect(created.sectionShapeType).toBe(ShapeTypes.face);
+                expect(created.sectionIndex).toBe(0);
             } finally {
                 restoreTx();
             }
         });
 
-        test("should publish an error toast and skip shapes whose thick-solid result is an error", () => {
+        test("should publish an error toast and skip a face whose base node cannot be resolved", () => {
             const restoreTx = stubTransactionRun();
-            const stubApp = (globalThis as any).app;
-            const originalFactory = stubApp.shapeProvider.factory;
-            stubApp.shapeProvider.factory = {
-                makeThickSolidBySimple: () => Result.err("thick failed"),
-            };
             const published: unknown[][] = [];
             const origPub = PubSub.default.pub;
             PubSub.default.pub = (...args: unknown[]) => published.push(args);
             try {
                 const cmd = new ThickSolidCommand();
-                wireCommand(cmd);
-                const parent = makeParent();
-                const node = { parent, transform: Matrix4.identity() } as any;
-                seedStepDatas(cmd, [
-                    {
-                        type: "shape" as const,
-                        shapes: [shapeData({ shape: { shapeType: ShapeTypes.face }, node })],
-                    } as any,
-                ]);
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const node = { id: "unregistered", parent } as any;
+                // findNode stays the default (() => undefined), so the reference never resolves.
+
+                seedStepDatas(cmd, [shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node }])]);
 
                 (cmd as any).executeMainTask();
 
-                // No node inserted for the failing shape.
                 expect(parent.insertedAfter).toHaveLength(0);
-                // PubSub publishes ("showToast", <message>); collect the messages.
                 const messages = published.filter((p) => p[0] === "showToast").map((p) => p[1]);
                 expect(messages).toContain("toast.converter.error");
                 expect(messages).toContain("toast.success");
             } finally {
                 PubSub.default.pub = origPub;
-                stubApp.shapeProvider.factory = originalFactory;
                 restoreTx();
             }
         });
@@ -183,14 +180,14 @@ describe("ThickSolidCommand", () => {
             PubSub.default.pub = (...args: unknown[]) => published.push(args);
             try {
                 const cmd = new ThickSolidCommand();
-                wireCommand(cmd);
-                const node = { parent: makeParent(), transform: Matrix4.identity() } as any;
-                seedStepDatas(cmd, [
-                    {
-                        type: "shape" as const,
-                        shapes: [shapeData({ shape: { shapeType: ShapeTypes.face }, node })],
-                    } as any,
-                ]);
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const node = liveFaceNode(doc);
+                node.parent = parent;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [node].find(predicate);
+
+                seedStepDatas(cmd, [shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node }])]);
 
                 (cmd as any).executeMainTask();
 
