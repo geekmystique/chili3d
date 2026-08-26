@@ -81,6 +81,11 @@ export abstract class Node extends HistoryObservable implements INode {
             const serialized = Serializer.serializeObject(this);
             serialized["id"] = Id.generate();
             serialized["name"] = `${this.name}_copy`;
+            // A clone is a newly created node for timeline/history purposes -
+            // it should get its own fresh createdOrder, not inherit the
+            // original's (GeometryNode subclasses only; harmless no-op key
+            // removal for node types that don't serialize one).
+            delete serialized["createdOrder"];
             return Serializer.deserializeObject(this.document, serialized) as this;
         } finally {
             this.document.history.disabled = oldValue;

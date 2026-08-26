@@ -5,6 +5,7 @@ import type { IDocument } from "../src/document";
 import { Id } from "../src/foundation";
 import type { I18nKeys } from "../src/i18n";
 import { FaceMaterialPair, GeometryNode } from "../src/model/geometryNode";
+import { serializable } from "../src/serialize";
 import type { IShapeMeshData } from "../src/shape";
 import { TestDocument } from "../test-utils";
 
@@ -26,6 +27,11 @@ class TestGeometryNode extends GeometryNode {
         } as any;
     }
 }
+
+// A separately registered subclass (rather than decorating TestGeometryNode itself)
+// so serialization/clone tests don't affect the plain construction tests above.
+@serializable()
+class SerializableTestGeometryNode extends TestGeometryNode {}
 
 describe("GeometryNode", () => {
     let doc: IDocument;
@@ -62,6 +68,32 @@ describe("GeometryNode", () => {
             const customId = Id.generate();
             const node = new TestGeometryNode({ document: doc, name: "test", id: customId });
             expect(node.id).toBe(customId);
+        });
+    });
+
+    describe("createdOrder", () => {
+        test("should assign increasing values to successively constructed nodes", () => {
+            const a = new TestGeometryNode({ document: doc, name: "a" });
+            const b = new TestGeometryNode({ document: doc, name: "b" });
+            expect(b.createdOrder).toBeGreaterThan(a.createdOrder);
+        });
+
+        test("should preserve an explicitly provided createdOrder (deserialization)", () => {
+            const node = new TestGeometryNode({ document: doc, name: "restored", createdOrder: 12345 });
+            expect(node.createdOrder).toBe(12345);
+        });
+
+        test("a freshly created node sorts after one restored with a large explicit createdOrder", () => {
+            new TestGeometryNode({ document: doc, name: "restored", createdOrder: 999999 });
+            const fresh = new TestGeometryNode({ document: doc, name: "fresh" });
+            expect(fresh.createdOrder).toBeGreaterThan(999999);
+        });
+
+        test("clone should get a fresh createdOrder rather than inheriting the original's", () => {
+            const node = new SerializableTestGeometryNode({ document: doc, name: "original" });
+            const cloned = node.clone();
+            expect(cloned.createdOrder).not.toBe(node.createdOrder);
+            expect(cloned.createdOrder).toBeGreaterThan(node.createdOrder);
         });
     });
 

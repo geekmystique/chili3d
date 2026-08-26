@@ -44,12 +44,17 @@ import { TimelineTrack } from "../src/timeline/timelineTrack";
 
 type PropertyHandler = (property: string, model: unknown) => void;
 
+// Mirrors GeometryNode.createdOrder: a shared, monotonically increasing counter
+// assigned at construction time, independent of where a node ends up in the tree.
+let nextCreatedOrder = 0;
+
 class MockNode {
     visible = true;
     parentVisible = true;
     parent: MockNode | undefined;
     nextSibling: MockNode | undefined;
     firstChild: MockNode | undefined;
+    readonly createdOrder: number = nextCreatedOrder++;
 
     constructor(
         readonly name: string,
@@ -90,6 +95,7 @@ class MockEditableNode {
     parent: MockNode | undefined;
     nextSibling: MockNode | undefined;
     editCommandKey: string | undefined;
+    readonly createdOrder: number = nextCreatedOrder++;
 
     constructor(
         readonly name: string,
@@ -207,11 +213,28 @@ describe("TimelineTrack", () => {
             expect(fixture.track.querySelectorAll("timeline-item").length).toBe(2);
         });
 
-        test("should render items in tree order", () => {
+        test("should render items in creation order", () => {
             fixture = createFixture();
             const items = fixture.track.children;
             expect((items[0] as unknown as { node: unknown }).node).toBe(fixture.model1);
             expect((items[1] as unknown as { node: unknown }).node).toBe(fixture.model2);
+        });
+
+        test("should order items by createdOrder even when that differs from tree/nextSibling order", () => {
+            // model2 is constructed (and thus created) first, but placed second
+            // in the tree's nextSibling chain - the strip must follow creation
+            // order, not tree-walk order.
+            const model2 = new MockNode("Fillet");
+            const model1 = new MockNode("Box");
+            model1.nextSibling = model2;
+            const root = { firstChild: model1, nextSibling: undefined };
+            const doc = makeDoc(root);
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            fixture = { doc, model1, model2, track };
+
+            const items = Array.from(track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([model2, model1]);
         });
     });
 
@@ -261,9 +284,12 @@ describe("TimelineTrack", () => {
             expect(fixture.track.querySelectorAll("timeline-item").length).toBe(2);
         });
 
-        test("should reorder items to match tree order, not append order, when a node is spliced in mid-chain", () => {
-            // A retroactive feature (e.g. a fillet added after-the-fact) is linked into
-            // the tree between model1 and model2, not at the end.
+        test("should keep items in creation order, not tree position, when a node is spliced in mid-chain", () => {
+            // A retroactive feature (e.g. a fillet added after-the-fact) gets linked
+            // into the tree between model1 and model2 - for correct dependency-chain
+            // semantics - even though it was created later than both. The strip must
+            // not follow that tree position; model3 stays last, matching when it was
+            // actually created.
             fixture = createFixture();
             const model3 = new MockNode("RetroactiveFillet");
             fixture.model1.nextSibling = model3;
@@ -274,7 +300,7 @@ describe("TimelineTrack", () => {
             ]);
 
             const items = Array.from(fixture.track.children) as unknown as { node: unknown }[];
-            expect(items.map((i) => i.node)).toEqual([fixture.model1, model3, fixture.model2]);
+            expect(items.map((i) => i.node)).toEqual([fixture.model1, fixture.model2, model3]);
         });
     });
 

@@ -20,10 +20,9 @@ import style from "./timelineTrack.module.css";
 
 /**
  * One document's timeline strip: a flat, left-to-right list of every
- * GeometryNode (body/feature) in the document, in tree order. Tree order
- * approximates creation order for a document that hasn't been manually
- * reorganized - there is no separate, explicit creation-order record yet.
- * Reordering the project tree does not reorder this strip.
+ * GeometryNode (body/feature) in the document, ordered by GeometryNode.createdOrder
+ * (true creation order) rather than tree position. Reorganizing the project
+ * tree (moving/reparenting nodes) does not reorder this strip.
  */
 export class TimelineTrack extends HTMLElement {
     private readonly nodeMap = new Map<GeometryNode, TimelineItem>();
@@ -39,7 +38,7 @@ export class TimelineTrack extends HTMLElement {
         this.collectExisting(document.modelManager.rootNode).forEach((node) => {
             this.addItem(node);
         });
-        this.reorderToMatchTree();
+        this.reorderByCreatedOrder();
     }
 
     connectedCallback(): void {
@@ -121,12 +120,17 @@ export class TimelineTrack extends HTMLElement {
 
     private readonly onPreviewedNodeChanged = () => this.restorePreview();
 
-    private collectExisting(node: INode, result: GeometryNode[] = []): GeometryNode[] {
+    private collectExisting(node: INode): GeometryNode[] {
+        const result: GeometryNode[] = [];
+        this.collectExistingRecursive(node, result);
+        return result.sort((a, b) => a.createdOrder - b.createdOrder);
+    }
+
+    private collectExistingRecursive(node: INode, result: GeometryNode[]): void {
         if (node instanceof GeometryNode) result.push(node);
         const firstChild = (node as INodeLinkedList).firstChild;
-        if (firstChild) this.collectExisting(firstChild, result);
-        if (node.nextSibling) this.collectExisting(node.nextSibling, result);
-        return result;
+        if (firstChild) this.collectExistingRecursive(firstChild, result);
+        if (node.nextSibling) this.collectExistingRecursive(node.nextSibling, result);
     }
 
     private addItem(node: GeometryNode) {
@@ -152,17 +156,17 @@ export class TimelineTrack extends HTMLElement {
                 this.removeItem(record.node);
             }
         });
-        this.reorderToMatchTree();
+        this.reorderByCreatedOrder();
     };
 
     /**
      * DOM append() moves an already-attached element rather than duplicating
-     * it, so walking every known item in tree order and re-appending it is
-     * an O(n) way to keep the strip's visual order in sync with the tree -
-     * needed because add/insertAfter/move can land a node anywhere, not just
-     * at the end.
+     * it, so walking every known item in createdOrder and re-appending it is
+     * an O(n log n) way to keep the strip's visual order in sync - needed
+     * because a new node can be created anywhere in the tree, not just at
+     * the end, and the tree itself can be reorganized independently.
      */
-    private reorderToMatchTree(): void {
+    private reorderByCreatedOrder(): void {
         this.collectExisting(this.document.modelManager.rootNode).forEach((node) => {
             const item = this.nodeMap.get(node);
             if (item) this.append(item);
