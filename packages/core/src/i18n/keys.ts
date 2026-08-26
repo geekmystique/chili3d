@@ -35,6 +35,7 @@ export const I18N_KEYS = [
     "body.pyramid",
     "body.rect",
     "body.revol",
+    "body.section",
     "body.sphere",
     "body.sweep",
     "body.thickSolid",

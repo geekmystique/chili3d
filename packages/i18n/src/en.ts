@@ -40,6 +40,7 @@ export default {
         "body.pyramid": "Pyramid",
         "body.rect": "Rectangle",
         "body.revol": "Revolve",
+        "body.section": "Section",
         "body.sphere": "Sphere",
         "body.sweep": "Sweep",
         "body.thickSolid": "Thick Solid",

@@ -40,6 +40,7 @@ export default {
         "body.pyramid": "棱锥",
         "body.rect": "矩形",
         "body.revol": "旋转",
+        "body.section": "相交曲线",
         "body.sphere": "球体",
         "body.sweep": "扫略",
         "body.thickSolid": "抽壳实体",

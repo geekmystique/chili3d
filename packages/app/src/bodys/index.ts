@@ -18,6 +18,7 @@ export * from "./pyramid";
 export * from "./rect";
 export * from "./regularPolygon";
 export * from "./revolve";
+export * from "./section";
 export * from "./sphere";
 export * from "./sweep";
 export * from "./thickSolid";

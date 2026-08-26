@@ -42,6 +42,7 @@ export default {
         "body.pyramid": "Пирамида",
         "body.rect": "Прямоугольник",
         "body.revol": "Повернуть",
+        "body.section": "Секция",
         "body.sphere": "Сфера",
         "body.sweep": "Развернуть",
         "body.thickSolid": "Оболочка",
