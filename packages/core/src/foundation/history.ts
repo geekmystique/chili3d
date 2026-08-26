@@ -166,10 +166,16 @@ export class NodeLinkedListHistoryRecord implements IHistoryRecord {
                 record.newParent?.remove(record.node);
                 break;
             case "remove":
-                record.oldParent?.add(record.node);
+                record.oldParent?.insertAfter(
+                    NodeLinkedListHistoryRecord.normalizePrevious(record.oldPrevious, record.oldParent),
+                    record.node,
+                );
                 break;
             case "transfer":
-                record.oldParent?.add(record.node);
+                record.oldParent?.insertAfter(
+                    NodeLinkedListHistoryRecord.normalizePrevious(record.oldPrevious, record.oldParent),
+                    record.node,
+                );
                 break;
             case "move":
                 record.newParent?.move(

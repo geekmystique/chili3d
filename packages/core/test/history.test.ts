@@ -223,34 +223,70 @@ describe("History", () => {
         expect(removedNode).toBe(mockNode);
     });
 
-    test("NodeLinkedListHistoryRecord undo 'remove' action", () => {
-        let addCalled = false;
-        const mockParent = {
-            add(_node: unknown) {
-                addCalled = true;
+    test("NodeLinkedListHistoryRecord undo 'remove' action restores the node at its old position", () => {
+        let insertAfterArgs: unknown[] = [];
+        const mockParent: any = {
+            insertAfter(...args: unknown[]) {
+                insertAfterArgs = args;
             },
         };
+        const mockOldPrevious = { parent: mockParent };
         const mockNode = { dispose() {} };
         const records: NodeRecord[] = [
-            { node: mockNode as any, action: "remove" as const, oldParent: mockParent as any },
+            {
+                node: mockNode as any,
+                action: "remove" as const,
+                oldParent: mockParent,
+                oldPrevious: mockOldPrevious as any,
+            },
         ];
         new NodeLinkedListHistoryRecord(records).undo();
-        expect(addCalled).toBe(true);
+        expect(insertAfterArgs[0]).toBe(mockOldPrevious);
+        expect(insertAfterArgs[1]).toBe(mockNode);
     });
 
-    test("NodeLinkedListHistoryRecord undo 'transfer' action", () => {
-        let addCalled = false;
+    test("NodeLinkedListHistoryRecord undo 'remove' falls back to first-child position when oldPrevious is stale", () => {
+        let insertAfterArgs: unknown[] = [];
         const mockOldParent = {
-            add(_node: unknown) {
-                addCalled = true;
+            insertAfter(...args: unknown[]) {
+                insertAfterArgs = args;
             },
         };
         const mockNode = { dispose() {} };
+        const mockOldPrevious = { parent: {} }; // belongs to another parent
         const records: NodeRecord[] = [
-            { node: mockNode as any, action: "transfer" as const, oldParent: mockOldParent as any },
+            {
+                node: mockNode as any,
+                action: "remove" as const,
+                oldParent: mockOldParent as any,
+                oldPrevious: mockOldPrevious as any,
+            },
         ];
         new NodeLinkedListHistoryRecord(records).undo();
-        expect(addCalled).toBe(true);
+        expect(insertAfterArgs[0]).toBeUndefined();
+        expect(insertAfterArgs[1]).toBe(mockNode);
+    });
+
+    test("NodeLinkedListHistoryRecord undo 'transfer' action restores the node at its old position", () => {
+        let insertAfterArgs: unknown[] = [];
+        const mockOldParent: any = {
+            insertAfter(...args: unknown[]) {
+                insertAfterArgs = args;
+            },
+        };
+        const mockOldPrevious = { parent: mockOldParent };
+        const mockNode = { dispose() {} };
+        const records: NodeRecord[] = [
+            {
+                node: mockNode as any,
+                action: "transfer" as const,
+                oldParent: mockOldParent,
+                oldPrevious: mockOldPrevious as any,
+            },
+        ];
+        new NodeLinkedListHistoryRecord(records).undo();
+        expect(insertAfterArgs[0]).toBe(mockOldPrevious);
+        expect(insertAfterArgs[1]).toBe(mockNode);
     });
 
     test("NodeLinkedListHistoryRecord undo 'move' action", () => {
@@ -342,6 +378,41 @@ describe("History", () => {
         expect(obj.val).toBe(3);
         arrayRecord.undo();
         expect(obj.val).toBe(0);
+    });
+
+    test("undoing a remove() restores the node at its original position, not appended at the end", () => {
+        const doc = new TestDocument();
+        const folder = new FolderNode({ document: doc, name: "root" });
+        const a = createPlainNode("a");
+        const b = createPlainNode("b");
+        const c = createPlainNode("c");
+        folder.add(a, b, c);
+
+        Transaction.execute(doc, "delete b", () => {
+            folder.remove(b);
+        });
+        expect(folder.children()).toEqual([a, c]);
+
+        doc.history.undo();
+
+        expect(folder.children()).toEqual([a, b, c]);
+    });
+
+    test("undoing a remove() of the first child restores it as the first child again", () => {
+        const doc = new TestDocument();
+        const folder = new FolderNode({ document: doc, name: "root" });
+        const a = createPlainNode("a");
+        const b = createPlainNode("b");
+        folder.add(a, b);
+
+        Transaction.execute(doc, "delete a", () => {
+            folder.remove(a);
+        });
+        expect(folder.children()).toEqual([b]);
+
+        doc.history.undo();
+
+        expect(folder.children()).toEqual([a, b]);
     });
 
     test("ArrayRecord undo restores moved node when its anchor was deleted outside history", () => {
