@@ -1,7 +1,7 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Continuities, PubSub, ShapeTypes } from "@chili3d/core";
+import { Continuities, EditableShapeNode, type IShape, PubSub, ShapeTypes } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
 import { LoftCommand } from "../../../src/commands/create/loft";
 import { ensureGlobalStubApp, mockShape, wireCommand } from "../commandTestUtils";
@@ -163,11 +163,22 @@ describe("LoftCommand", () => {
         test("should collect shapes from each selection then add a loft node on confirm", async () => {
             const cmd = new LoftCommand() as any;
             const { doc, addedNodes } = wireCommand(cmd);
+            // A real node (rather than a bare stand-in) so both sweepRefFromPick
+            // (reads owner.node.shape to decide whole-shape vs sub-shape) and
+            // LoftNode.generateShape() (resolves owner.node.id back through the
+            // document) have something real to work with.
+            const sectionNode = new EditableShapeNode({
+                document: doc,
+                name: "section",
+                shape: mockShape({ shapeType: ShapeTypes.wire }) as unknown as IShape,
+            });
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                [sectionNode].find(predicate);
             // Loft's selectSection uses document.picker.pickShape(prompt, controller, opts).
             // Wire it to succeed with one shape the first call, then break with an empty list.
             const pickedShape = {
                 shape: mockShape({ shapeType: ShapeTypes.wire }),
-                owner: { node: { worldTransform: () => identityLikeMatrix() } },
+                owner: { node: Object.assign(sectionNode, { worldTransform: () => identityLikeMatrix() }) },
             };
             let pickCall = 0;
             (doc.picker as any).pickShape = async (_prompt: unknown, controller: any) => {
