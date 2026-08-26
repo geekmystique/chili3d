@@ -5,24 +5,16 @@ import {
     type CommandKeys,
     GeometryUtils,
     type I18nKeys,
-    type IDocument,
     type IEdge,
     type IShape,
     type IWire,
     Precision,
-    ReferenceShapeNode,
     Result,
-    type ShapeNode,
     ShapeTypes,
     serializable,
-    serialize,
     XYZ,
 } from "@chili3d/core";
-
-export interface FaceOptions {
-    document: IDocument;
-    sourceNodeIds: string[];
-}
+import { SourceListShapeNode } from "./sourceListShapeNode";
 
 /**
  * Holds references to the edge/wire node ids that bound this face, rather
@@ -31,53 +23,15 @@ export interface FaceOptions {
  * ConvertToFace, so the references keep resolving.
  */
 @serializable()
-export class FaceNode extends ReferenceShapeNode {
+export class FaceNode extends SourceListShapeNode {
+    protected readonly errorLabel = "Face";
+
     override display(): I18nKeys {
         return "body.face";
     }
 
     override get editCommandKey(): CommandKeys {
         return "modify.faceEdit";
-    }
-
-    @serialize()
-    get sourceNodeIds(): string[] {
-        return this.getPrivateValue("sourceNodeIds");
-    }
-
-    constructor(options: FaceOptions) {
-        super(options);
-        this.setPrivateValue("sourceNodeIds", options.sourceNodeIds);
-    }
-
-    /**
-     * Re-point this feature at a new set of sources and recompute once. Used
-     * by the "re-pick" edit flow to redirect an existing feature without
-     * deleting and recreating it (which would break anything downstream that
-     * references it).
-     */
-    updateSources(sourceNodeIds: string[]) {
-        this.setProperty("sourceNodeIds", sourceNodeIds);
-        this.setShape(this.generateShape());
-    }
-
-    override redirectReference(oldId: string, newId: string): boolean {
-        const index = this.sourceNodeIds.indexOf(oldId);
-        if (index === -1) return false;
-        const sourceNodeIds = [...this.sourceNodeIds];
-        sourceNodeIds[index] = newId;
-        this.setProperty("sourceNodeIds", sourceNodeIds);
-        this.setShape(this.generateShape());
-        return true;
-    }
-
-    /**
-     * The first source - no single input is more "primary" than another when
-     * bounding a face, but the first one is the natural place to collapse
-     * back to if this feature is deleted (mirroring LoftNode).
-     */
-    override get primaryInputId(): string | undefined {
-        return this.sourceNodeIds[0];
     }
 
     private static getWires(shapes: IShape[]): IWire[] {
@@ -138,20 +92,9 @@ export class FaceNode extends ReferenceShapeNode {
         return a.some((p1) => b.some((p2) => p1.distanceTo(p2) < Precision.Distance));
     }
 
-    override generateShape(): Result<IShape> {
-        if (this.sourceNodeIds.length === 0) return Result.err("No shapes to create face");
+    protected override combineShapes(shapes: IShape[]): Result<IShape> {
+        if (shapes.length === 0) return Result.err("No shapes to create face");
 
-        const bases: ShapeNode[] = [];
-        for (const id of this.sourceNodeIds) {
-            const base = this.resolveInput(id);
-            if (!base) return Result.err(`Face: source shape "${id}" no longer exists`);
-            if (!base.shape.isOk) return Result.err(base.shape.error);
-            bases.push(base);
-        }
-
-        this.subscribeTo(bases);
-
-        const shapes = bases.map((base) => base.shape.value.transformedMul(base.transform));
         const wires = FaceNode.getWires(shapes);
         FaceNode.orientOuterWire(wires[0]);
         return shapeFactory.face(wires);

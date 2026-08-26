@@ -22,6 +22,7 @@ export * from "./rect";
 export * from "./regularPolygon";
 export * from "./revolve";
 export * from "./section";
+export * from "./sourceListShapeNode";
 export * from "./sphere";
 export * from "./sweep";
 export * from "./thickSolid";
