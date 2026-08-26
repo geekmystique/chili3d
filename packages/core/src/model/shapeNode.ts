@@ -42,15 +42,20 @@ export abstract class ShapeNode extends GeometryNode {
     }
 
     protected setShape(shape: Result<IShape>) {
-        if (this._shape.isOk && this._shape.value.isEqual(shape.value)) {
+        if (this._shape.isOk && shape.isOk && this._shape.value.isEqual(shape.value)) {
             return;
         }
 
         if (!shape.isOk) {
             PubSub.default.pub("displayError", shape.error);
-            return;
         }
 
+        // Store the result either way, including a failure - leaving the old,
+        // now-stale shape in place on failure would make this node's own
+        // .shape.isOk lie to everything that depends on it (both direct
+        // callers checking it after an edit, and downstream nodes reading it
+        // through resolveInput during propagate below), masking the break
+        // instead of surfacing it.
         this._mesh = undefined;
         this.setProperty("shape", shape);
         // Optional chain: some test documents stand in a plain modelManager

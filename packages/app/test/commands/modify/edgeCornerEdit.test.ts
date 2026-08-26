@@ -156,6 +156,26 @@ describe("EdgeCornerEditCommand", () => {
             expect(targetNode.visible).toBe(true);
         });
 
+        test("afterSelection should leave the feature hidden if it was already hidden before picking began", async () => {
+            // Reproduces re-editing a fillet that a downstream feature already
+            // consumes (e.g. a Boolean built on the filleted result), which
+            // hides the fillet and splices it into the reference chain -
+            // restoreVisibility must not force it back to visible just because
+            // showBaseForPicking hid it again for the duration of the pick.
+            const { cmd, baseNode, targetNode } = buildEditCommand([1, 2]);
+            baseNode.visible = false;
+            targetNode.visible = false;
+            await (cmd as any).canExcute();
+
+            const steps = (cmd as any).getSteps();
+            steps[0].options.beforeSelection();
+            expect(targetNode.visible).toBe(false);
+
+            steps[0].options.afterSelection();
+            expect(baseNode.visible).toBe(false);
+            expect(targetNode.visible).toBe(false);
+        });
+
         test("select() should resolve with an empty (not undefined) result when nothing is (re-)picked, so the command doesn't abort before executeMainTask", async () => {
             // Confirming without touching the 3D view must not be treated as a
             // failed step - the base SelectShapeStep returns undefined for a

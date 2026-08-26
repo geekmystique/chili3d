@@ -62,9 +62,6 @@ export class CopySubShapeEditCommand extends MultistepCommand {
             }
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

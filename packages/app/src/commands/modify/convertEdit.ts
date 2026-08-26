@@ -7,8 +7,10 @@ import {
     MultistepCommand,
     PubSub,
     type ReferenceShapeNode,
+    ShapeNode,
     ShapeNodeFilter,
     ShapeTypes,
+    spliceIntoReferenceChain,
     Transaction,
 } from "@chili3d/core";
 import { CompoundNode } from "../../bodys/compound";
@@ -61,14 +63,23 @@ abstract class ConvertEditCommand extends MultistepCommand {
         if (!node) return;
 
         const picked = this.stepDatas[0].nodes ?? [];
+        const previousSourceIds = new Set(node.sourceNodeIds);
 
         Transaction.execute(this.document, `edit ${node.name}`, () => {
             node.updateSources(picked.length > 0 ? picked.map((n) => n.id) : node.sourceNodeIds);
+            // Hide newly-picked sources the same way ConvertCommand hides them at
+            // creation - sources already referenced before this edit are already
+            // hidden (or were left visible on purpose by a non-hiding flow), so
+            // only the ones this edit newly consumes need it.
+            if (picked.length > 0) {
+                picked.forEach((source) => {
+                    if (previousSourceIds.has(source.id) || !(source instanceof ShapeNode)) return;
+                    source.visible = false;
+                    spliceIntoReferenceChain(this.document, source, node);
+                });
+            }
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

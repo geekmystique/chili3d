@@ -93,9 +93,6 @@ export class SweepEditCommand extends MultistepCommand {
             node.updateSelection(profileRefs, pathRef, this.round);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

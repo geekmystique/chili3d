@@ -72,9 +72,6 @@ export class CurveProjectionEditCommand extends MultistepCommand {
             node.updateReferences(shapeRef, faceRef);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

@@ -69,9 +69,6 @@ export class SectionEditCommand extends MultistepCommand {
             node.updateReferences(shapeRef, pathRef);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

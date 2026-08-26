@@ -71,9 +71,6 @@ export class BooleanEditCommand extends MultistepCommand {
             node.updateSelection(baseNodeId, toolNodeIds);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

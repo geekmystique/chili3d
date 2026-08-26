@@ -35,6 +35,7 @@ export class EdgeCornerEditCommand extends EdgeCornerCommand {
     private targetNode?: EdgeCornerNode;
     private baseNode?: ShapeNode;
     private baseWasVisible = false;
+    private targetWasVisible = false;
 
     @property("common.length")
     get value() {
@@ -99,6 +100,7 @@ export class EdgeCornerEditCommand extends EdgeCornerCommand {
     private readonly showBaseForPicking = () => {
         if (!this.baseNode || !this.targetNode) return;
         this.baseWasVisible = this.baseNode.visible;
+        this.targetWasVisible = this.targetNode.visible;
         this.baseNode.visible = true;
         this.targetNode.visible = false;
         this.document.visual.update();
@@ -106,7 +108,7 @@ export class EdgeCornerEditCommand extends EdgeCornerCommand {
 
     private readonly restoreVisibility = () => {
         if (this.baseNode) this.baseNode.visible = this.baseWasVisible;
-        if (this.targetNode) this.targetNode.visible = true;
+        if (this.targetNode) this.targetNode.visible = this.targetWasVisible;
         this.document.visual.update();
     };
 
@@ -123,9 +125,6 @@ export class EdgeCornerEditCommand extends EdgeCornerCommand {
             node.updateSelection(edgeIndexes, value);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }
