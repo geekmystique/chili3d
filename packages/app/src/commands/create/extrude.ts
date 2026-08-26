@@ -8,7 +8,6 @@ import {
     type IFace,
     type IShape,
     type IStep,
-    type ISubShape,
     type LengthAtAxisSnapData,
     LengthAtAxisStep,
     Precision,
@@ -18,7 +17,7 @@ import {
     ShapeTypes,
     spliceIntoReferenceChain,
 } from "@chili3d/core";
-import { closedProfileToFace, ExtrudeNode } from "../../bodys";
+import { closedProfileToFace, ExtrudeNode, sectionRefFromPick } from "../../bodys";
 import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCommand";
 
 @command({
@@ -34,12 +33,12 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
         const { point, normal } = this.getAxis(shape);
         const dist = this.stepDatas[1].point!.sub(point).dot(normal);
 
-        const sub = pick.shape as Partial<ISubShape>;
+        const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
         const node = new ExtrudeNode({
             document: this.document,
             sectionNodeId: (pick.owner.node as ShapeNode).id,
-            sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
-            sectionIndex: sub.index,
+            sectionShapeType: shapeType,
+            sectionIndex: index,
             length: dist,
         });
         this.createdNode = node;

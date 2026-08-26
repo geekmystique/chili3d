@@ -4,7 +4,6 @@
 import {
     command,
     type IStep,
-    type ISubShape,
     MultistepCommand,
     PubSub,
     property,
@@ -13,6 +12,7 @@ import {
     ShapeTypes,
     Transaction,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
 import { ThickSolidNode } from "../../bodys/thickSolid";
 
 @command({
@@ -31,12 +31,12 @@ export class ThickSolidCommand extends MultistepCommand {
     protected override executeMainTask(): void {
         Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
             this.stepDatas[0].shapes.forEach((x) => {
-                const sub = x.shape as Partial<ISubShape>;
+                const { shapeType, index } = sectionRefFromPick(x.owner.node as ShapeNode, x.shape);
                 const node = new ThickSolidNode({
                     document: this.document,
                     sectionNodeId: (x.owner.node as ShapeNode).id,
-                    sectionShapeType: sub.index !== undefined ? x.shape.shapeType : undefined,
-                    sectionIndex: sub.index,
+                    sectionShapeType: shapeType,
+                    sectionIndex: index,
                     thickness: this.thickness,
                 });
 

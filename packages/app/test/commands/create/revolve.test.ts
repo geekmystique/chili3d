@@ -40,6 +40,16 @@ function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
     });
 }
 
+/**
+ * A minimal pick-owner stand-in: sweepRefFromPick (used to derive
+ * sectionShapeType/sectionIndex) reads owner.shape to decide whole-shape vs
+ * sub-shape, so a bare `{ id }` node isn't enough once a real pick owner is
+ * expected.
+ */
+function mockOwner(id: string, shapeType: ShapeType, findSubShapes: (type: number) => IShape[] = () => []) {
+    return { id, shape: Result.ok({ shapeType, findSubShapes } as unknown as IShape) };
+}
+
 function axisStepData(overrides: { transform?: Matrix4; node?: unknown } = {}) {
     const axisEdge = {
         shapeType: ShapeTypes.edge,
@@ -97,7 +107,9 @@ describe("Revolve", () => {
                 normal: () => [XYZ.zero, XYZ.unitZ],
             };
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: sectionShape, node: { id: "sect-1" }, point: XYZ.zero }]),
+                shapeStepResult([
+                    { shape: sectionShape, node: mockOwner("sect-1", ShapeTypes.face), point: XYZ.zero },
+                ]),
                 axisStepData(),
             ]);
 
@@ -118,7 +130,9 @@ describe("Revolve", () => {
             wireCommand(cmd);
             const sectionShape = { shapeType: ShapeTypes.face, normal: () => [XYZ.zero, XYZ.unitZ] };
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: sectionShape, node: { id: "sect-1" }, point: XYZ.zero }]),
+                shapeStepResult([
+                    { shape: sectionShape, node: mockOwner("sect-1", ShapeTypes.face), point: XYZ.zero },
+                ]),
                 axisStepData(),
             ]);
 
@@ -129,15 +143,33 @@ describe("Revolve", () => {
         test("should reference the sub-shape's type and index when the section is a face of an existing solid", () => {
             const cmd = new Revolve();
             wireCommand(cmd);
+            // shapeStepResult wraps the picked shape through mockShape(), which
+            // copies the given properties onto a fresh object - so isEqual can't
+            // rely on reference equality to the original candidate object here,
+            // it has to compare a marker property that survives the copy.
+            const otherFace = { shapeType: ShapeTypes.face, isEqual: () => false };
+            const targetFace = {
+                shapeType: ShapeTypes.face,
+                isEqual: (o: { marker?: string }) => o.marker === "picked",
+            };
+            const owner = mockOwner("solid-1", ShapeTypes.solid, (type) =>
+                type === ShapeTypes.face
+                    ? [
+                          otherFace as unknown as IShape,
+                          otherFace as unknown as IShape,
+                          targetFace as unknown as IShape,
+                      ]
+                    : [],
+            );
             seedStepDatas(cmd, [
                 shapeStepResult([
                     {
                         shape: {
                             shapeType: ShapeTypes.face,
                             normal: () => [XYZ.zero, XYZ.unitZ],
-                            index: 2,
+                            marker: "picked",
                         } as any,
-                        node: { id: "solid-1" },
+                        node: owner,
                         point: XYZ.zero,
                     },
                 ]),
@@ -265,7 +297,9 @@ describe("Revolve", () => {
             (doc.modelManager as any).findNode = () => undefined;
 
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node: { id: "missing" } }]),
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.face }, node: mockOwner("missing", ShapeTypes.face) },
+                ]),
                 axisStepData(),
             ]);
 

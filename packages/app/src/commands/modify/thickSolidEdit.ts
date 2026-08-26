@@ -3,7 +3,6 @@
 
 import {
     command,
-    type ISubShape,
     MultistepCommand,
     PubSub,
     type ShapeNode,
@@ -11,6 +10,7 @@ import {
     ShapeTypes,
     Transaction,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
 import { ThickSolidNode } from "../../bodys/thickSolid";
 import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
 
@@ -58,20 +58,13 @@ export class ThickSolidEditCommand extends MultistepCommand {
 
         Transaction.execute(this.document, `edit ${node.name}`, () => {
             if (pick) {
-                const sub = pick.shape as Partial<ISubShape>;
-                node.updateSection(
-                    (pick.owner.node as ShapeNode).id,
-                    sub.index !== undefined ? pick.shape.shapeType : undefined,
-                    sub.index,
-                );
+                const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
+                node.updateSection((pick.owner.node as ShapeNode).id, shapeType, index);
             } else {
                 node.updateSection(node.sectionNodeId, node.sectionShapeType, node.sectionIndex);
             }
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

@@ -120,19 +120,37 @@ describe("ThickSolidCommand", () => {
                 const cmd = new ThickSolidCommand();
                 const { doc } = wireCommand(cmd);
                 const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-                const solidNode = liveFaceNode(doc);
+                // The owner's own shape must be a different type (solid) than the
+                // picked face - sweepRefFromPick treats a pick as whole-shape
+                // whenever the picked type matches the owner's own type.
+                const solidShape = mockShape({ shapeType: ShapeTypes.solid });
+                const solidNode = new EditableShapeNode({
+                    document: doc,
+                    name: "solid-source",
+                    shape: solidShape as unknown as IShape,
+                    materialId: "mat-1",
+                });
                 solidNode.parent = parent;
                 (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
                     [solidNode].find(predicate);
-                // ThickSolidNode.generateShape resolves sectionIndex via findSubShapes.
+                // shapeStepResult wraps the picked shape through mockShape(), which
+                // copies the given properties onto a fresh object - so isEqual can't
+                // rely on reference equality to the original candidate object here,
+                // it has to compare a marker property that survives the copy.
+                const targetFace = {
+                    shapeType: ShapeTypes.face,
+                    isEqual: (o: { marker?: string }) => o.marker === "picked",
+                };
                 Object.assign(solidNode.shape.value, {
-                    findSubShapes: (type: number) =>
-                        type === ShapeTypes.face ? [{ shapeType: ShapeTypes.face }] : [],
+                    findSubShapes: (type: number) => (type === ShapeTypes.face ? [targetFace] : []),
                 });
 
                 seedStepDatas(cmd, [
                     shapeStepResult([
-                        { shape: { shapeType: ShapeTypes.face, index: 0 } as any, node: solidNode },
+                        {
+                            shape: { shapeType: ShapeTypes.face, marker: "picked" } as any,
+                            node: solidNode,
+                        },
                     ]),
                 ]);
 
@@ -156,7 +174,14 @@ describe("ThickSolidCommand", () => {
                 const cmd = new ThickSolidCommand();
                 const { doc } = wireCommand(cmd);
                 const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-                const node = { id: "unregistered", parent } as any;
+                // sweepRefFromPick reads owner.shape to decide whole-shape vs
+                // sub-shape before the id is ever looked up, so it needs a shape
+                // even though findNode below never resolves this id.
+                const node = {
+                    id: "unregistered",
+                    parent,
+                    shape: Result.ok(mockShape({ shapeType: ShapeTypes.face })),
+                } as any;
                 // findNode stays the default (() => undefined), so the reference never resolves.
 
                 seedStepDatas(cmd, [shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node }])]);

@@ -39,6 +39,16 @@ function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
     });
 }
 
+/**
+ * A minimal pick-owner stand-in: sweepRefFromPick (used to derive
+ * sectionShapeType/sectionIndex) reads owner.shape to decide whole-shape vs
+ * sub-shape, so a bare `{ id }` node isn't enough once a real pick owner is
+ * expected.
+ */
+function mockOwner(id: string, shapeType: ShapeType, findSubShapes: (type: number) => IShape[] = () => []) {
+    return { id, shape: Result.ok({ shapeType, findSubShapes } as unknown as IShape) };
+}
+
 describe("ExtrudeCommand", () => {
     test("should have command metadata", () => {
         const data = (ExtrudeCommand as any).prototype.data;
@@ -65,7 +75,7 @@ describe("ExtrudeCommand", () => {
                             shapeType: ShapeTypes.face,
                             normal: () => [XYZ.zero, XYZ.unitZ],
                         } as Partial<IShape>,
-                        node: { id: "rect-1" },
+                        node: mockOwner("rect-1", ShapeTypes.face),
                         point: XYZ.zero,
                     },
                 ]),
@@ -91,7 +101,7 @@ describe("ExtrudeCommand", () => {
                             normal: () => [XYZ.zero, XYZ.unitZ],
                             isClosed: () => false,
                         } as Partial<IShape>,
-                        node: { id: "rect-1" },
+                        node: mockOwner("rect-1", ShapeTypes.face),
                         point: XYZ.zero,
                     },
                 ]),
@@ -105,15 +115,33 @@ describe("ExtrudeCommand", () => {
         test("should reference the sub-shape's type and index when the pick is a face of an existing solid", () => {
             const cmd = new ExtrudeCommand();
             wireCommand(cmd);
+            // shapeStepResult wraps the picked shape through mockShape(), which
+            // copies the given properties onto a fresh object - so isEqual can't
+            // rely on reference equality to the original candidate object here,
+            // it has to compare a marker property that survives the copy.
+            const otherFace = { shapeType: ShapeTypes.face, isEqual: () => false };
+            const targetFace = {
+                shapeType: ShapeTypes.face,
+                isEqual: (o: { marker?: string }) => o.marker === "picked",
+            };
+            const owner = mockOwner("solid-1", ShapeTypes.solid, (type) =>
+                type === ShapeTypes.face
+                    ? [
+                          otherFace as unknown as IShape,
+                          otherFace as unknown as IShape,
+                          targetFace as unknown as IShape,
+                      ]
+                    : [],
+            );
             seedStepDatas(cmd, [
                 shapeStepResult([
                     {
                         shape: {
                             shapeType: ShapeTypes.face,
                             normal: () => [XYZ.zero, XYZ.unitZ],
-                            index: 2,
+                            marker: "picked",
                         } as any,
-                        node: { id: "solid-1" },
+                        node: owner,
                         point: XYZ.zero,
                     },
                 ]),
@@ -278,7 +306,7 @@ describe("ExtrudeCommand", () => {
                             shapeType: ShapeTypes.face,
                             normal: () => [XYZ.zero, XYZ.unitZ],
                         } as Partial<IShape>,
-                        node: { id: "missing" },
+                        node: mockOwner("missing", ShapeTypes.face),
                         point: XYZ.zero,
                     },
                 ]),

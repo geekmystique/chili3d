@@ -56,6 +56,25 @@ export function sweepRefFromPick(ownerNode: ShapeNode, pickedShape: IShape): Swe
 }
 
 /**
+ * The same whole-shape-vs-sub-shape decision as sweepRefFromPick, in the
+ * `undefined`-sentinel shape used by Extrude/Revolve/Offset/ThickSolid's
+ * optional sectionShapeType/sectionIndex fields instead of SweepRef's
+ * ShapeTypes.shape/-1 sentinels - those predate SweepRef and were never
+ * migrated to hold a SweepRef directly, but re-deriving a whole-shape-vs-
+ * sub-shape pick by hand (trusting a defined `.index` on the picked shape)
+ * has the same false-negative sweepRefFromPick's own doc comment describes.
+ */
+export function sectionRefFromPick(
+    ownerNode: ShapeNode,
+    pickedShape: IShape,
+): { shapeType: ShapeType | undefined; index: number | undefined } {
+    const ref = sweepRefFromPick(ownerNode, pickedShape);
+    return ref.index < 0
+        ? { shapeType: undefined, index: undefined }
+        : { shapeType: ref.shapeType, index: ref.index };
+}
+
+/**
  * The referenced node's own shape, or - when the ref names a sub-shape -
  * the sub-shape at that index within it. Sub-shape indexes are positions
  * into the base shape's own findSubShapes() list for shapeType, the same

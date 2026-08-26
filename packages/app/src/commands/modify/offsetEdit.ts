@@ -8,7 +8,6 @@ import {
     type I18nKeys,
     type IEdge,
     type IFace,
-    type ISubShape,
     type IWire,
     type JoinType,
     MultistepCommand,
@@ -20,6 +19,7 @@ import {
     Transaction,
     type XYZ,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
 import { OffsetNode } from "../../bodys/offset";
 import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
 
@@ -118,12 +118,12 @@ export class OffsetEditCommand extends MultistepCommand {
 
         Transaction.execute(this.document, `edit ${node.name}`, () => {
             if (pick) {
-                const sub = pick.shape as Partial<ISubShape>;
+                const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
                 const worldShape = pick.shape.transformedMul(pick.transform);
                 node.updateSection(
                     (pick.owner.node as ShapeNode).id,
-                    sub.index !== undefined ? pick.shape.shapeType : undefined,
-                    sub.index,
+                    shapeType,
+                    index,
                     this.computeNormal(worldShape as any),
                     joinType,
                 );
@@ -138,9 +138,6 @@ export class OffsetEditCommand extends MultistepCommand {
             }
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 }

@@ -10,7 +10,6 @@ import {
     type IShape,
     type IShapeFilter,
     type IStep,
-    type ISubShape,
     Line,
     property,
     SelectShapeStep,
@@ -20,7 +19,7 @@ import {
     spliceIntoReferenceChain,
     VisualStates,
 } from "@chili3d/core";
-import { RevolvedNode } from "../../bodys";
+import { RevolvedNode, sectionRefFromPick } from "../../bodys";
 import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCommand";
 
 @command({
@@ -47,12 +46,12 @@ export class Revolve extends CreateFromSelectionCommand {
             direction: transform.ofVector(edge.direction),
         });
 
-        const sub = pick.shape as Partial<ISubShape>;
+        const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
         const node = new RevolvedNode({
             document: this.document,
             sectionNodeId: (pick.owner.node as ShapeNode).id,
-            sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
-            sectionIndex: sub.index,
+            sectionShapeType: shapeType,
+            sectionIndex: index,
             axis,
             angle: this.angle,
         });

@@ -5,7 +5,6 @@ import {
     command,
     type IEdge,
     type ILine,
-    type ISubShape,
     Line,
     MultistepCommand,
     PubSub,
@@ -16,6 +15,7 @@ import {
     type VisualShapeData,
     VisualStates,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
 import { RevolvedNode } from "../../bodys/revolve";
 import { LineFilter } from "../create/revolve";
 import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
@@ -78,19 +78,12 @@ export class RevolveEditCommand extends MultistepCommand {
             node.updateSection(nodeId, shapeType, index, axis);
         });
 
-        if (!node.shape.isOk) {
-            PubSub.default.pub("displayError", node.shape.error);
-        }
         this.document.visual.update();
     }
 
     private sectionRef(pick: VisualShapeData) {
-        const sub = pick.shape as Partial<ISubShape>;
-        return [
-            (pick.owner.node as ShapeNode).id,
-            sub.index !== undefined ? pick.shape.shapeType : undefined,
-            sub.index,
-        ] as const;
+        const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
+        return [(pick.owner.node as ShapeNode).id, shapeType, index] as const;
     }
 
     private axisFromPick(pick: VisualShapeData): Line {

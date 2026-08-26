@@ -10,7 +10,6 @@ import {
     type IFace,
     type IShape,
     type IStep,
-    type ISubShape,
     type IWire,
     type JoinType,
     LengthAtAxisStep,
@@ -25,6 +24,7 @@ import {
     ShapeTypes,
     type XYZ,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
 import { OffsetNode } from "../../bodys/offset";
 
 @command({
@@ -51,12 +51,12 @@ export class OffsetCommand extends MultistepCommand {
         const distance = this.stepDatas[1].point!.sub(ax.point).dot(ax.direction);
 
         const pick = this.stepDatas[0].shapes[0];
-        const sub = pick.shape as Partial<ISubShape>;
+        const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
         const node = new OffsetNode({
             document: this.document,
             sectionNodeId: (pick.owner.node as ShapeNode).id,
-            sectionShapeType: sub.index !== undefined ? pick.shape.shapeType : undefined,
-            sectionIndex: sub.index,
+            sectionShapeType: shapeType,
+            sectionIndex: index,
             distance,
             normal: ax.normal,
             joinType: this.mapJoinType(),
