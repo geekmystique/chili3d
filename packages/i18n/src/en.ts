@@ -27,7 +27,6 @@ export default {
         "body.face": "Face",
         "body.fillet": "Fillet",
         "body.helix": "Helix",
-        "body.fuse": "Fuse",
         "body.group": "Group",
         "body.imported": "Imported",
         "body.line": "Line",

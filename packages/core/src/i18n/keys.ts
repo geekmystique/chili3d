@@ -22,7 +22,6 @@ export const I18N_KEYS = [
     "body.face",
     "body.fillet",
     "body.helix",
-    "body.fuse",
     "body.group",
     "body.imported",
     "body.line",

@@ -27,7 +27,6 @@ export default {
         "body.face": "面",
         "body.fillet": "圆角",
         "body.helix": "螺旋线",
-        "body.fuse": "合并",
         "body.group": "组",
         "body.imported": "导入的模型",
         "body.line": "直线",

@@ -29,7 +29,6 @@ export default {
         "body.face": "Сторона",
         "body.fillet": "Скругление",
         "body.helix": "Спираль",
-        "body.fuse": "Предохранитель",
         "body.group": "Группа",
         "body.imported": "Импортированно",
         "body.line": "Линия",
