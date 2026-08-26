@@ -94,6 +94,18 @@ describe("DefaultRibbon", () => {
         expect(Array.isArray(drawGroup!.collapsedItems)).toBe(true);
     });
 
+    test("create.thickSolid should have a ribbon entry point", () => {
+        // Regression: the command existed (with a registered icon) but was
+        // never added to any group or collapsedItems list, so it had no way
+        // to be invoked from the UI at all.
+        const modelTab = DefaultRibbon[0];
+        const allItems = modelTab.groups.flatMap((g) => [
+            ...flattenItems(g.items),
+            ...(g.collapsedItems ?? []),
+        ]);
+        expect(allItems).toContain("create.thickSolid");
+    });
+
     test("all tab names should start with ribbon.tab.", () => {
         for (const tab of DefaultRibbon) {
             expect(tab.tabName.startsWith("ribbon.tab.")).toBe(true);
