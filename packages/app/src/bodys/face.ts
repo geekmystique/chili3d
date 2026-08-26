@@ -8,9 +8,10 @@ import {
     type IEdge,
     type IShape,
     type IWire,
-    ParameterShapeNode,
     Precision,
+    ReferenceShapeNode,
     Result,
+    type ShapeNode,
     ShapeTypes,
     serializable,
     serialize,
@@ -19,32 +20,54 @@ import {
 
 export interface FaceOptions {
     document: IDocument;
-    shapes: IEdge[] | IWire[];
+    sourceNodeIds: string[];
 }
 
+/**
+ * Holds references to the edge/wire node ids that bound this face, rather
+ * than baked edge/wire shapes. Editing a referenced node's own parameters
+ * recomputes this node. The referenced nodes are hidden, not deleted, by
+ * ConvertToFace, so the references keep resolving.
+ */
 @serializable()
-export class FaceNode extends ParameterShapeNode {
+export class FaceNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.face";
     }
 
     @serialize()
-    get shapes(): IEdge[] | IWire[] {
-        return this.getPrivateValue("shapes");
-    }
-    set shapes(values: IEdge[] | IWire[]) {
-        this.setPropertyEmitShapeChanged("shapes", values);
+    get sourceNodeIds(): string[] {
+        return this.getPrivateValue("sourceNodeIds");
     }
 
     constructor(options: FaceOptions) {
         super(options);
-        this.setPrivateValue("shapes", options.shapes);
+        this.setPrivateValue("sourceNodeIds", options.sourceNodeIds);
     }
 
-    private getWires(): IWire[] {
+    override redirectReference(oldId: string, newId: string): boolean {
+        const index = this.sourceNodeIds.indexOf(oldId);
+        if (index === -1) return false;
+        const sourceNodeIds = [...this.sourceNodeIds];
+        sourceNodeIds[index] = newId;
+        this.setProperty("sourceNodeIds", sourceNodeIds);
+        this.setShape(this.generateShape());
+        return true;
+    }
+
+    /**
+     * The first source - no single input is more "primary" than another when
+     * bounding a face, but the first one is the natural place to collapse
+     * back to if this feature is deleted (mirroring LoftNode).
+     */
+    override get primaryInputId(): string | undefined {
+        return this.sourceNodeIds[0];
+    }
+
+    private static getWires(shapes: IShape[]): IWire[] {
         const wires: IWire[] = [];
         const edges: IEdge[] = [];
-        for (const shape of this.shapes) {
+        for (const shape of shapes) {
             if (shape.shapeType === ShapeTypes.wire) {
                 if (shape.isClosed()) {
                     wires.push(shape as IWire);
@@ -100,9 +123,20 @@ export class FaceNode extends ParameterShapeNode {
     }
 
     override generateShape(): Result<IShape> {
-        if (this.shapes.length === 0) return Result.err("No shapes to create face");
+        if (this.sourceNodeIds.length === 0) return Result.err("No shapes to create face");
 
-        const wires = this.getWires();
+        const bases: ShapeNode[] = [];
+        for (const id of this.sourceNodeIds) {
+            const base = this.resolveInput(id);
+            if (!base) return Result.err(`Face: source shape "${id}" no longer exists`);
+            if (!base.shape.isOk) return Result.err(base.shape.error);
+            bases.push(base);
+        }
+
+        this.subscribeTo(bases);
+
+        const shapes = bases.map((base) => base.shape.value.transformedMul(base.transform));
+        const wires = FaceNode.getWires(shapes);
         FaceNode.orientOuterWire(wires[0]);
         return shapeFactory.face(wires);
     }

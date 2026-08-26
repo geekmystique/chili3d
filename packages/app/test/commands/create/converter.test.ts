@@ -1,8 +1,12 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { type IDocument, Matrix4, type ShapeNode, ShapeTypes, type VisualNode } from "@chili3d/core";
+import { EditableShapeNode, type IDocument, Matrix4, ShapeTypes, type VisualNode } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import { CompoundNode } from "../../../src/bodys/compound";
+import { FaceNode } from "../../../src/bodys/face";
+import { ShellNode } from "../../../src/bodys/shell";
+import { SolidNode } from "../../../src/bodys/solid";
 import { WireNode } from "../../../src/bodys/wire";
 import {
     ConvertToCompound,
@@ -11,7 +15,13 @@ import {
     ConvertToSolid,
     ConvertToWire,
 } from "../../../src/commands/create/converter";
-import { ensureGlobalStubApp, mockShape, stubTransactionRun, wireCommand } from "../commandTestUtils";
+import {
+    ensureGlobalStubApp,
+    mockShape,
+    stubTransactionRun,
+    type TrackingParent,
+    wireCommand,
+} from "../commandTestUtils";
 
 let restoreApp: () => void;
 beforeAll(() => {
@@ -21,6 +31,20 @@ afterAll(() => restoreApp());
 
 function stubDocumentSelection(doc: IDocument, nodes: VisualNode[]) {
     (doc.selection as any).getSelectedNodes = () => nodes;
+}
+
+/**
+ * Build an EditableShapeNode for each shape and wire `doc.modelManager.findNode`
+ * to resolve them by id, so a converted node's generateShape() (which looks
+ * sources up by id) can find them the same way it would against a real document.
+ */
+function installSourceNodes(
+    doc: ReturnType<typeof wireCommand>["doc"],
+    shapes: ReturnType<typeof mockShape>[],
+) {
+    const nodes = shapes.map((shape, i) => new EditableShapeNode({ document: doc, name: `src${i}`, shape }));
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) => nodes.find(predicate);
+    return nodes;
 }
 
 describe("ConvertToWire", () => {
@@ -49,7 +73,7 @@ describe("ConvertToWire", () => {
         expect(filter.allow({ shapeType: ShapeTypes.face } as any)).toBe(false);
     });
 
-    test("create should return a Result for a shape node", () => {
+    test("create should return a reference-based WireNode", () => {
         const restoreTx = stubTransactionRun();
         try {
             const cmd = new ConvertToWire();
@@ -58,13 +82,11 @@ describe("ConvertToWire", () => {
                 shapeType: ShapeTypes.edge,
                 transformedMul: () => mockShape({ shapeType: ShapeTypes.edge }) as any,
             });
-            const node = {
-                shape: { value: shape },
-                worldTransform: () => Matrix4.identity(),
-            } as unknown as ShapeNode;
+            const [node] = installSourceNodes(doc, [shape]);
             const result = (cmd as any).create(doc, [node]);
             expect(result.isOk).toBe(true);
             expect(result.value).toBeInstanceOf(WireNode);
+            expect((result.value as WireNode).sourceNodeIds).toEqual([node.id]);
         } finally {
             restoreTx();
         }
@@ -106,6 +128,32 @@ describe("ConvertToWire", () => {
             expect(models).toHaveLength(0);
         });
     });
+
+    describe("executeAsync", () => {
+        test("should hide (not delete) the consumed nodes and keep the new node referencing them", async () => {
+            const restoreTx = stubTransactionRun();
+            try {
+                const cmd = new ConvertToWire();
+                const { doc } = wireCommand(cmd);
+                const shape = mockShape({
+                    shapeType: ShapeTypes.edge,
+                    transformedMul: () => mockShape({ shapeType: ShapeTypes.edge }) as any,
+                });
+                const [node] = installSourceNodes(doc, [shape]);
+                stubDocumentSelection(doc, [node as unknown as VisualNode]);
+
+                await cmd.executeAsync();
+
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                expect(rootNode.added).toHaveLength(1);
+                expect(rootNode.added[0]).toBeInstanceOf(WireNode);
+                expect(node.visible).toBe(false);
+                expect(node.parent).toBeUndefined();
+            } finally {
+                restoreTx();
+            }
+        });
+    });
 });
 
 describe("ConvertToFace", () => {
@@ -121,6 +169,31 @@ describe("ConvertToFace", () => {
         const filter = (cmd as any).shapeFilter();
         expect(filter.allow({ shapeType: ShapeTypes.edge } as any)).toBe(true);
         expect(filter.allow({ shapeType: ShapeTypes.wire } as any)).toBe(true);
+    });
+
+    test("create should return a reference-based FaceNode", () => {
+        const restoreTx = stubTransactionRun();
+        try {
+            const cmd = new ConvertToFace();
+            const { doc } = wireCommand(cmd);
+            const shape = mockShape({
+                shapeType: ShapeTypes.wire,
+                isClosed: () => true,
+                findSubShapes: () => [],
+                transformedMul: () =>
+                    mockShape({
+                        shapeType: ShapeTypes.wire,
+                        isClosed: () => true,
+                        findSubShapes: () => [],
+                    }) as any,
+            });
+            const [node] = installSourceNodes(doc, [shape]);
+            const result = (cmd as any).create(doc, [node]);
+            expect(result.isOk).toBe(true);
+            expect(result.value).toBeInstanceOf(FaceNode);
+        } finally {
+            restoreTx();
+        }
     });
 });
 
@@ -139,6 +212,24 @@ describe("ConvertToShell", () => {
         expect(filter.allow({ shapeType: ShapeTypes.edge } as any)).toBe(false);
         expect(filter.allow({ shapeType: ShapeTypes.wire } as any)).toBe(false);
     });
+
+    test("create should return a reference-based ShellNode", () => {
+        const restoreTx = stubTransactionRun();
+        try {
+            const cmd = new ConvertToShell();
+            const { doc } = wireCommand(cmd);
+            const shape = mockShape({
+                shapeType: ShapeTypes.face,
+                transformedMul: () => mockShape({ shapeType: ShapeTypes.face }) as any,
+            });
+            const [node] = installSourceNodes(doc, [shape]);
+            const result = (cmd as any).create(doc, [node]);
+            expect(result.isOk).toBe(true);
+            expect(result.value).toBeInstanceOf(ShellNode);
+        } finally {
+            restoreTx();
+        }
+    });
 });
 
 describe("ConvertToSolid", () => {
@@ -155,6 +246,24 @@ describe("ConvertToSolid", () => {
         expect(filter.allow({ shapeType: ShapeTypes.shell } as any)).toBe(true);
         expect(filter.allow({ shapeType: ShapeTypes.face } as any)).toBe(false);
         expect(filter.allow({ shapeType: ShapeTypes.edge } as any)).toBe(false);
+    });
+
+    test("create should return a reference-based SolidNode", () => {
+        const restoreTx = stubTransactionRun();
+        try {
+            const cmd = new ConvertToSolid();
+            const { doc } = wireCommand(cmd);
+            const shape = mockShape({
+                shapeType: ShapeTypes.shell,
+                transformedMul: () => mockShape({ shapeType: ShapeTypes.shell }) as any,
+            });
+            const [node] = installSourceNodes(doc, [shape]);
+            const result = (cmd as any).create(doc, [node]);
+            expect(result.isOk).toBe(true);
+            expect(result.value).toBeInstanceOf(SolidNode);
+        } finally {
+            restoreTx();
+        }
     });
 
     describe("_getSelectedModels", () => {
@@ -204,6 +313,24 @@ describe("ConvertToCompound", () => {
         expect(filter.allow({ shapeType: ShapeTypes.face } as any)).toBe(true);
         expect(filter.allow({ shapeType: ShapeTypes.shell } as any)).toBe(true);
         expect(filter.allow({ shapeType: ShapeTypes.solid } as any)).toBe(true);
+    });
+
+    test("create should return a reference-based CompoundNode", () => {
+        const restoreTx = stubTransactionRun();
+        try {
+            const cmd = new ConvertToCompound();
+            const { doc } = wireCommand(cmd);
+            const shape = mockShape({
+                shapeType: ShapeTypes.solid,
+                transformedMul: () => mockShape({ shapeType: ShapeTypes.solid }) as any,
+            });
+            const [node] = installSourceNodes(doc, [shape]);
+            const result = (cmd as any).create(doc, [node]);
+            expect(result.isOk).toBe(true);
+            expect(result.value).toBeInstanceOf(CompoundNode);
+        } finally {
+            restoreTx();
+        }
     });
 
     describe("_getSelectedModels", () => {
