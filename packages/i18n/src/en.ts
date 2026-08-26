@@ -18,6 +18,8 @@ export default {
         "body.chamfer": "Chamfer",
         "body.circle": "Circle",
         "body.cone": "Cone",
+        "body.copySubShape": "Copy Shape",
+        "body.curveProjection": "Projection",
         "body.cylinder": "Cylinder",
         "body.editableShape": "Editable Shape",
         "body.ellipse": "Ellipse",

@@ -20,6 +20,8 @@ export default {
         "body.chamfer": "Фаска",
         "body.circle": "Окружность",
         "body.cone": "Конус",
+        "body.copySubShape": "Копировать Фигуру",
+        "body.curveProjection": "Проекция",
         "body.cylinder": "Цилиндр",
         "body.editableShape": "Редактируемая Фигур",
         "body.ellipse": "Элипс",

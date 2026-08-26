@@ -3,19 +3,17 @@
 
 import {
     command,
-    EditableShapeNode,
+    type GeometryNode,
     I18n,
-    type IEdge,
-    type IFace,
     type IStep,
-    type IWire,
     property,
     SelectShapeStep,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
     VisualStates,
-    XYZ,
 } from "@chili3d/core";
+import { CurveProjectionNode, sweepRefFromPick } from "../../bodys";
 import { CreateCommand } from "../createCommand";
 
 @command({
@@ -29,7 +27,7 @@ export class CurveProjectionCommand extends CreateCommand {
     }
 
     set dir(value: string) {
-        const nums = this.dir
+        const nums = value
             .split(",")
             .map(Number)
             .filter((n) => !isNaN(n));
@@ -41,17 +39,21 @@ export class CurveProjectionCommand extends CreateCommand {
         this.setProperty("dir", value);
     }
 
-    protected override geometryNode() {
-        const shape = this.transformdFirstShape(this.stepDatas[0]) as IEdge | IWire;
-        const face = this.transformdFirstShape(this.stepDatas[1]) as IFace;
-        const [x, y, z] = this.dir.split(",").map(Number);
-        const dir = new XYZ({ x, y, z }).normalize() as XYZ;
+    protected override geometryNode(): GeometryNode {
+        const shapePick = this.stepDatas[0].shapes[0];
+        const facePick = this.stepDatas[1].shapes[0];
+        const shapeRef = sweepRefFromPick(shapePick.owner.node as ShapeNode, shapePick.shape);
+        const faceRef = sweepRefFromPick(facePick.owner.node as ShapeNode, facePick.shape);
 
-        const curveProjection = shapeFactory.curveProjection(shape, face, dir);
-        return new EditableShapeNode({
+        return new CurveProjectionNode({
             document: this.document,
-            name: I18n.translate("command.convert.curveProjection"),
-            shape: curveProjection.value,
+            shapeNodeId: shapeRef.nodeId,
+            shapeShapeType: shapeRef.shapeType,
+            shapeIndex: shapeRef.index,
+            faceNodeId: faceRef.nodeId,
+            faceShapeType: faceRef.shapeType,
+            faceIndex: faceRef.index,
+            dir: this.dir,
         });
     }
 

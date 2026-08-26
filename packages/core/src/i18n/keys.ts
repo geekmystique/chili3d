@@ -13,6 +13,8 @@ export const I18N_KEYS = [
     "body.chamfer",
     "body.circle",
     "body.cone",
+    "body.copySubShape",
+    "body.curveProjection",
     "body.cylinder",
     "body.editableShape",
     "body.ellipse",

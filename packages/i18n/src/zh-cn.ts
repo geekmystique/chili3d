@@ -18,6 +18,8 @@ export default {
         "body.chamfer": "倒角",
         "body.circle": "圆形",
         "body.cone": "圆锥",
+        "body.copySubShape": "复制形状",
+        "body.curveProjection": "曲线投影",
         "body.cylinder": "圆柱",
         "body.editableShape": "可编辑的形状",
         "body.ellipse": "椭圆",
