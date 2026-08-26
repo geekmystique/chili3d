@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type Continuity,
     type I18nKeys,
     type IDocument,
@@ -45,6 +46,10 @@ export interface LoftOptions {
 export class LoftNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.loft";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.loftEdit";
     }
 
     @serialize()
@@ -104,6 +109,29 @@ export class LoftNode extends ReferenceShapeNode {
         this.setProperty("sectionNodeIds", sectionNodeIds);
         this.setShape(this.generateShape());
         return true;
+    }
+
+    /**
+     * Re-point this feature at a new set of sections, and/or new solid/ruled/
+     * continuity settings, and recompute once. Used by the "re-pick" edit
+     * flow to redirect an existing feature without deleting and recreating
+     * it (which would break anything downstream that references it).
+     */
+    updateSections(
+        sectionNodeIds: string[],
+        sectionShapeTypes: ShapeType[],
+        sectionIndexes: number[],
+        isSolid: boolean,
+        isRuled: boolean,
+        continuity: Continuity,
+    ) {
+        this.setProperty("sectionNodeIds", sectionNodeIds);
+        this.setProperty("sectionShapeTypes", sectionShapeTypes);
+        this.setProperty("sectionIndexes", sectionIndexes);
+        this.setProperty("isSolid", isSolid);
+        this.setProperty("isRuled", isRuled);
+        this.setProperty("continuity", continuity);
+        this.setShape(this.generateShape());
     }
 
     /**

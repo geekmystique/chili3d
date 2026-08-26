@@ -309,4 +309,33 @@ describe("RevolvedNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.revolveEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.revolveEdit");
+        });
+    });
+
+    describe("updateSection", () => {
+        test("should redirect to a new section and axis, and recompute", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newSection",
+                shape: selfTransforming(createMockWire()),
+            });
+            nodes.push(newBase);
+            const revolve = rs.fn(() => Result.ok(createMockShape() as any));
+            setupShapeFactoryMock({ revolve });
+            const node = makeNode(360);
+            expect(node.shape.isOk).toBe(true);
+            expect(revolve).toHaveBeenCalledTimes(1);
+
+            const newAxis = new Line({ point: XYZ.unitY, direction: XYZ.unitZ });
+            node.updateSection(newBase.id, undefined, undefined, newAxis);
+
+            expect(node.sectionNodeId).toBe(newBase.id);
+            expect(node.axis).toBe(newAxis);
+            expect(revolve).toHaveBeenCalledTimes(2);
+        });
+    });
 });

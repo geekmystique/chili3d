@@ -266,4 +266,34 @@ describe("LoftNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.loftEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.loftEdit");
+        });
+    });
+
+    describe("updateSections", () => {
+        test("should redirect to a new set of sections and options, and recompute", () => {
+            const newSection = new EditableShapeNode({
+                document: doc,
+                name: "newSection",
+                shape: selfTransforming(createMockWire()),
+            });
+            nodes.push(newSection);
+            const loft = rs.fn(() => Result.ok(createMockShape()));
+            setupShapeFactoryMock({ loft });
+            const node = makeNode(false);
+            expect(node.shape.isOk).toBe(true);
+            expect(loft).toHaveBeenCalledTimes(1);
+
+            node.updateSections([newSection.id], [ShapeTypes.shape], [-1], true, true, "g1");
+
+            expect(node.sectionNodeIds).toEqual([newSection.id]);
+            expect(node.isSolid).toBe(true);
+            expect(node.isRuled).toBe(true);
+            expect(node.continuity).toBe("g1");
+            expect(loft).toHaveBeenCalledTimes(2);
+        });
+    });
 });

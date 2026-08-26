@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IEdge,
@@ -47,6 +48,10 @@ export interface OffsetOptions {
 export class OffsetNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.offset";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.offsetEdit";
     }
 
     @serialize()
@@ -98,6 +103,28 @@ export class OffsetNode extends ReferenceShapeNode {
         this.setProperty("sectionNodeId", newId);
         this.setShape(this.generateShape());
         return true;
+    }
+
+    /**
+     * Re-point this feature at a new section (and/or sub-shape within it),
+     * with the offset direction and join type recomputed for it, and
+     * recompute once. Used by the "re-pick" edit flow to redirect an existing
+     * feature without deleting and recreating it (which would break anything
+     * downstream that references it).
+     */
+    updateSection(
+        nodeId: string,
+        shapeType: ShapeType | undefined,
+        index: number | undefined,
+        normal: XYZ,
+        joinType: JoinType,
+    ) {
+        this.setProperty("sectionNodeId", nodeId);
+        this.setProperty("sectionShapeType", shapeType);
+        this.setProperty("sectionIndex", index);
+        this.setProperty("normal", normal);
+        this.setProperty("joinType", joinType);
+        this.setShape(this.generateShape());
     }
 
     override get primaryInputId(): string | undefined {

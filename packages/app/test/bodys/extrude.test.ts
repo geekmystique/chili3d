@@ -352,4 +352,33 @@ describe("ExtrudeNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.extrudeEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.extrudeEdit");
+        });
+    });
+
+    describe("updateSection", () => {
+        test("should redirect to a new section and recompute", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newSection",
+                shape: selfTransforming(createMockWire()),
+            });
+            nodes.push(newBase);
+            const prism = rs.fn(() => Result.ok(createMockShape() as any));
+            setupShapeFactoryMock({ prism });
+            const node = makeNode(10);
+            expect(node.shape.isOk).toBe(true);
+            expect(prism).toHaveBeenCalledTimes(1);
+
+            node.updateSection(newBase.id, undefined, undefined);
+
+            expect(node.sectionNodeId).toBe(newBase.id);
+            expect(node.sectionShapeType).toBeUndefined();
+            expect(node.sectionIndex).toBeUndefined();
+            expect(prism).toHaveBeenCalledTimes(2);
+        });
+    });
 });

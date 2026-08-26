@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -33,6 +34,10 @@ export class CopySubShapeNode extends ReferenceShapeNode {
         return "body.copySubShape";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.copySubShapeEdit";
+    }
+
     @serialize()
     get sourceNodeId(): string {
         return this.getPrivateValue("sourceNodeId");
@@ -60,6 +65,19 @@ export class CopySubShapeNode extends ReferenceShapeNode {
         this.setProperty("sourceNodeId", newId);
         this.setShape(this.generateShape());
         return true;
+    }
+
+    /**
+     * Re-point this feature at a new source sub-shape and recompute once.
+     * Used by the "re-pick" edit flow to redirect an existing feature
+     * without deleting and recreating it (which would break anything
+     * downstream that references it).
+     */
+    updateSelection(nodeId: string, shapeType: ShapeType, index: number) {
+        this.setProperty("sourceNodeId", nodeId);
+        this.setProperty("subShapeType", shapeType);
+        this.setProperty("index", index);
+        this.setShape(this.generateShape());
     }
 
     override get primaryInputId(): string | undefined {

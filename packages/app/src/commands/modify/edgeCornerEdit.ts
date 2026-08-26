@@ -2,41 +2,20 @@
 // See LICENSE file in the project root for full license information.
 
 import {
-    type AsyncController,
     command,
-    type IDocument,
     type IEdge,
     type IShape,
     type ISubEdgeShape,
     PubSub,
     property,
     Result,
-    SelectShapeStep,
     ShapeNode,
     ShapeTypes,
-    type SnapResult,
     Transaction,
 } from "@chili3d/core";
 import { EdgeCornerNode, type EdgeCornerOperateType } from "../../bodys/edgeCorner";
 import { EdgeCornerCommand } from "./edgeCornerCommand";
-
-/**
- * SelectShapeStep treats a confirm with nothing picked as a failed step,
- * which aborts the whole command before executeMainTask ever runs - correct
- * for a fresh Fillet/Chamfer (nothing to apply the operation to), wrong for
- * re-editing one: leaving the 3D view untouched and only changing the value
- * should keep the feature's current edges, not silently drop the whole edit.
- * This resolves to an empty (not undefined) SnapResult instead, so the step
- * always succeeds; executeMainTask falls back to the target's existing
- * edgeIndexes whenever nothing was (re-)picked.
- */
-class KeepExistingSelectionStep extends SelectShapeStep {
-    override async select(document: IDocument, controller: AsyncController): Promise<SnapResult | undefined> {
-        const result = await super.select(document, controller);
-        if (result) return result;
-        return { view: document.application.activeView!, shapes: [], nodes: [], type: "shape" };
-    }
-}
+import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
 
 /**
  * Re-picks the edges (and/or value) of an existing EdgeCornerNode, updating

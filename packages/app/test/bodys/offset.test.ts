@@ -285,4 +285,30 @@ describe("OffsetNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.offsetEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.offsetEdit");
+        });
+    });
+
+    describe("updateSection", () => {
+        test("should redirect to a new section, normal and joinType, and recompute", () => {
+            const newSection = selfTransforming(
+                createMockShape({ shapeType: ShapeTypes.edge, offset: () => Result.ok(createMockShape()) }),
+            );
+            const newBase = new EditableShapeNode({ document: doc, name: "newSection", shape: newSection });
+            nodes.push(newBase);
+            const node = makeNode(5);
+            expect(node.shape.isOk).toBe(true);
+
+            const newNormal = XYZ.unitX;
+            node.updateSection(newBase.id, undefined, undefined, newNormal, "tangent");
+
+            expect(node.sectionNodeId).toBe(newBase.id);
+            expect(node.normal).toBe(newNormal);
+            expect(node.joinType).toBe("tangent");
+            expect(node.shape.isOk).toBe(true);
+        });
+    });
 });

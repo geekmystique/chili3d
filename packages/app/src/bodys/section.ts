@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -36,6 +37,10 @@ export interface SectionOptions {
 export class SectionNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.section";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.sectionEdit";
     }
 
     @serialize()
@@ -90,6 +95,22 @@ export class SectionNode extends ReferenceShapeNode {
         }
         if (changed) this.setShape(this.generateShape());
         return changed;
+    }
+
+    /**
+     * Re-point this feature at a new shape and/or path reference (and
+     * recompute once). Used by the "re-pick" edit flow to redirect an
+     * existing feature without deleting and recreating it (which would break
+     * anything downstream that references it).
+     */
+    updateReferences(shapeRef: SweepRef, pathRef: SweepRef) {
+        this.setProperty("shapeNodeId", shapeRef.nodeId);
+        this.setProperty("shapeShapeType", shapeRef.shapeType);
+        this.setProperty("shapeIndex", shapeRef.index);
+        this.setProperty("pathNodeId", pathRef.nodeId);
+        this.setProperty("pathShapeType", pathRef.shapeType);
+        this.setProperty("pathIndex", pathRef.index);
+        this.setShape(this.generateShape());
     }
 
     /**

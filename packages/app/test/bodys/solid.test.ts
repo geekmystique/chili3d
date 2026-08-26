@@ -178,4 +178,26 @@ describe("SolidNode", () => {
             expect(result.isOk).toBe(false);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.solidEdit", () => {
+            expect(makeNode(mockShell()).editCommandKey).toBe("modify.solidEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            const solid = rs.fn(() => Result.ok(repairableShape()));
+            setupShapeFactoryMock({ solid });
+            const node = makeNode(mockShell());
+            expect(node.shape.isOk).toBe(true);
+            expect(solid).toHaveBeenCalledTimes(1);
+
+            const newSource = sourceNode(mockShell());
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(solid).toHaveBeenCalledTimes(2);
+        });
+    });
 });

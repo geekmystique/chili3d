@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IEdge,
@@ -96,6 +97,10 @@ export class SweepedNode extends ReferenceShapeNode {
         return "body.sweep";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.sweepEdit";
+    }
+
     @serialize()
     get profileNodeIds(): string[] {
         return this.getPrivateValue("profileNodeIds");
@@ -160,6 +165,32 @@ export class SweepedNode extends ReferenceShapeNode {
         }
         if (changed) this.setShape(this.generateShape());
         return changed;
+    }
+
+    /**
+     * Re-point this feature at a new path and/or profile selection, and/or a
+     * new round setting, and recompute once. Used by the "re-pick" edit flow
+     * to redirect an existing feature without deleting and recreating it
+     * (which would break anything downstream that references it).
+     */
+    updateSelection(profileRefs: SweepRef[], pathRef: SweepRef, round: boolean) {
+        this.setProperty(
+            "profileNodeIds",
+            profileRefs.map((r) => r.nodeId),
+        );
+        this.setProperty(
+            "profileShapeTypes",
+            profileRefs.map((r) => r.shapeType),
+        );
+        this.setProperty(
+            "profileIndexes",
+            profileRefs.map((r) => r.index),
+        );
+        this.setProperty("pathNodeId", pathRef.nodeId);
+        this.setProperty("pathShapeType", pathRef.shapeType);
+        this.setProperty("pathIndex", pathRef.index);
+        this.setProperty("round", round);
+        this.setShape(this.generateShape());
     }
 
     /**

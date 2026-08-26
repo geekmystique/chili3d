@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -41,6 +42,10 @@ export class ThickSolidNode extends ReferenceShapeNode {
         return "body.thickSolid";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.thickSolidEdit";
+    }
+
     @serialize()
     get sectionNodeId(): string {
         return this.getPrivateValue("sectionNodeId");
@@ -78,6 +83,19 @@ export class ThickSolidNode extends ReferenceShapeNode {
         this.setProperty("sectionNodeId", newId);
         this.setShape(this.generateShape());
         return true;
+    }
+
+    /**
+     * Re-point this feature at a new section (and/or sub-shape within it) and
+     * recompute once. Used by the "re-pick" edit flow to redirect an existing
+     * feature without deleting and recreating it (which would break anything
+     * downstream that references it).
+     */
+    updateSection(nodeId: string, shapeType: ShapeType | undefined, index: number | undefined) {
+        this.setProperty("sectionNodeId", nodeId);
+        this.setProperty("sectionShapeType", shapeType);
+        this.setProperty("sectionIndex", index);
+        this.setShape(this.generateShape());
     }
 
     override get primaryInputId(): string | undefined {

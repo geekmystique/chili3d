@@ -107,7 +107,7 @@ export class Revolve extends CreateFromSelectionCommand {
     }
 }
 
-class LineFilter implements IShapeFilter {
+export class LineFilter implements IShapeFilter {
     allow(shape: IShape): boolean {
         if (shape.shapeType === ShapeTypes.edge) {
             const edge = shape as IEdge;

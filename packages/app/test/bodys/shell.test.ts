@@ -165,4 +165,26 @@ describe("ShellNode", () => {
             expect(result.isOk).toBe(false);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.shellEdit", () => {
+            expect(makeNode(mockFace()).editCommandKey).toBe("modify.shellEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            const shell = rs.fn(() => Result.ok(createMockShape()));
+            setupShapeFactoryMock({ shell });
+            const node = makeNode(mockFace());
+            expect(node.shape.isOk).toBe(true);
+            expect(shell).toHaveBeenCalledTimes(1);
+
+            const newSource = sourceNode(mockFace());
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(shell).toHaveBeenCalledTimes(2);
+        });
+    });
 });

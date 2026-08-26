@@ -279,4 +279,35 @@ describe("FaceNode", () => {
             expect(calls).toBe(0);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.faceEdit", () => {
+            expect(makeNode(mockLineEdge(0, 0, 10, 0)).editCommandKey).toBe("modify.faceEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => Result.ok(createMockShape()),
+            });
+            const node = makeNode(mockLineEdge(0, 0, 10, 0));
+            expect(node.shape.isOk).toBe(true);
+
+            let calls = 0;
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const newSource = sourceNode(mockLineEdge(0, 0, 10, 0));
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(calls).toBe(1);
+        });
+    });
 });

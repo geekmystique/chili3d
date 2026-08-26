@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -42,6 +43,10 @@ export interface RevolveOptions {
 export class RevolvedNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.revol";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.revolveEdit";
     }
 
     @serialize()
@@ -90,6 +95,20 @@ export class RevolvedNode extends ReferenceShapeNode {
         this.setProperty("sectionNodeId", newId);
         this.setShape(this.generateShape());
         return true;
+    }
+
+    /**
+     * Re-point this feature at a new section (and/or sub-shape within it)
+     * and/or axis, and recompute once. Used by the "re-pick" edit flow to
+     * redirect an existing feature without deleting and recreating it (which
+     * would break anything downstream that references it).
+     */
+    updateSection(nodeId: string, shapeType: ShapeType | undefined, index: number | undefined, axis: Line) {
+        this.setProperty("sectionNodeId", nodeId);
+        this.setProperty("sectionShapeType", shapeType);
+        this.setProperty("sectionIndex", index);
+        this.setProperty("axis", axis);
+        this.setShape(this.generateShape());
     }
 
     override get primaryInputId(): string | undefined {

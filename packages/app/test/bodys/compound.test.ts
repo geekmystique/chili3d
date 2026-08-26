@@ -154,4 +154,26 @@ describe("CompoundNode", () => {
             expect(result.isOk).toBe(false);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.compoundEdit", () => {
+            expect(makeNode(createMockShape()).editCommandKey).toBe("modify.compoundEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            const combine = rs.fn(() => Result.ok(createMockShape()));
+            setupShapeFactoryMock({ combine });
+            const node = makeNode(createMockShape());
+            expect(node.shape.isOk).toBe(true);
+            expect(combine).toHaveBeenCalledTimes(1);
+
+            const newSource = sourceNode(createMockShape());
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(combine).toHaveBeenCalledTimes(2);
+        });
+    });
 });

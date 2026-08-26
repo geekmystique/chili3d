@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -32,6 +33,10 @@ export interface BooleanOptions {
 export class BooleanNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.bolean";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.booleanEdit";
     }
 
     @serialize()
@@ -71,6 +76,18 @@ export class BooleanNode extends ReferenceShapeNode {
         }
         if (changed) this.setShape(this.generateShape());
         return changed;
+    }
+
+    /**
+     * Re-point this feature at a new base and/or tool selection (and
+     * recompute once). Used by the "re-pick" edit flow to redirect an
+     * existing feature without deleting and recreating it (which would break
+     * anything downstream that references it).
+     */
+    updateSelection(baseNodeId: string, toolNodeIds: string[]) {
+        this.setProperty("baseNodeId", baseNodeId);
+        this.setProperty("toolNodeIds", toolNodeIds);
+        this.setShape(this.generateShape());
     }
 
     /**

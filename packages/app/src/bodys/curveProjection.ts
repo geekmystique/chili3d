@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     I18n,
     type I18nKeys,
     type IDocument,
@@ -42,6 +43,10 @@ export interface CurveProjectionOptions {
 export class CurveProjectionNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.curveProjection";
+    }
+
+    override get editCommandKey(): CommandKeys {
+        return "modify.curveProjectionEdit";
     }
 
     @serialize()
@@ -114,6 +119,22 @@ export class CurveProjectionNode extends ReferenceShapeNode {
         }
         if (changed) this.setShape(this.generateShape());
         return changed;
+    }
+
+    /**
+     * Re-point this feature at a new curve and/or target-face reference (and
+     * recompute once). Used by the "re-pick" edit flow to redirect an
+     * existing feature without deleting and recreating it (which would break
+     * anything downstream that references it).
+     */
+    updateReferences(shapeRef: SweepRef, faceRef: SweepRef) {
+        this.setProperty("shapeNodeId", shapeRef.nodeId);
+        this.setProperty("shapeShapeType", shapeRef.shapeType);
+        this.setProperty("shapeIndex", shapeRef.index);
+        this.setProperty("faceNodeId", faceRef.nodeId);
+        this.setProperty("faceShapeType", faceRef.shapeType);
+        this.setProperty("faceIndex", faceRef.index);
+        this.setShape(this.generateShape());
     }
 
     /**

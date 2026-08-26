@@ -170,4 +170,26 @@ describe("WireNode", () => {
             expect(result.isOk).toBe(false);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.wireEdit", () => {
+            expect(makeNode(createMockEdge()).editCommandKey).toBe("modify.wireEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            const wire = rs.fn(() => Result.ok(createMockWire()));
+            setupShapeFactoryMock({ wire });
+            const node = makeNode(createMockEdge());
+            expect(node.shape.isOk).toBe(true);
+            expect(wire).toHaveBeenCalledTimes(1);
+
+            const newSource = sourceNode(createMockEdge());
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(wire).toHaveBeenCalledTimes(2);
+        });
+    });
 });

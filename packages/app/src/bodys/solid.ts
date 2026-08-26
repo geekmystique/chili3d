@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IShape,
@@ -31,6 +32,10 @@ export class SolidNode extends ReferenceShapeNode {
         return "body.solid";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.solidEdit";
+    }
+
     @serialize()
     get sourceNodeIds(): string[] {
         return this.getPrivateValue("sourceNodeIds");
@@ -39,6 +44,17 @@ export class SolidNode extends ReferenceShapeNode {
     constructor(options: SolidOptions) {
         super(options);
         this.setPrivateValue("sourceNodeIds", options.sourceNodeIds);
+    }
+
+    /**
+     * Re-point this feature at a new set of sources and recompute once. Used
+     * by the "re-pick" edit flow to redirect an existing feature without
+     * deleting and recreating it (which would break anything downstream that
+     * references it).
+     */
+    updateSources(sourceNodeIds: string[]) {
+        this.setProperty("sourceNodeIds", sourceNodeIds);
+        this.setShape(this.generateShape());
     }
 
     override redirectReference(oldId: string, newId: string): boolean {

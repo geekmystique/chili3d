@@ -247,4 +247,39 @@ describe("SectionNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.sectionEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.sectionEdit");
+        });
+    });
+
+    describe("updateReferences", () => {
+        test("should redirect to new shape and path references, and recompute", () => {
+            const newShape = new EditableShapeNode({
+                document: doc,
+                name: "newShape",
+                shape: selfTransforming(
+                    createMockShape({ shapeType: ShapeTypes.face, section: () => createMockShape() }),
+                ),
+            });
+            const newPath = new EditableShapeNode({
+                document: doc,
+                name: "newPath",
+                shape: selfTransforming(createMockShape({ shapeType: ShapeTypes.face })),
+            });
+            nodes.push(newShape, newPath);
+            const node = makeNode();
+            expect(node.shape.isOk).toBe(true);
+
+            node.updateReferences(
+                { nodeId: newShape.id, shapeType: ShapeTypes.shape, index: -1 },
+                { nodeId: newPath.id, shapeType: ShapeTypes.shape, index: -1 },
+            );
+
+            expect(node.shapeNodeId).toBe(newShape.id);
+            expect(node.pathNodeId).toBe(newPath.id);
+            expect(node.shape.isOk).toBe(true);
+        });
+    });
 });

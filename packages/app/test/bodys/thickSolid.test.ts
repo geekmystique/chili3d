@@ -240,4 +240,31 @@ describe("ThickSolidNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.thickSolidEdit", () => {
+            expect(makeNode(5).editCommandKey).toBe("modify.thickSolidEdit");
+        });
+    });
+
+    describe("updateSection", () => {
+        test("should redirect to a new section and recompute", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newSection",
+                shape: selfTransforming(createMockShape({ shapeType: ShapeTypes.face })),
+            });
+            nodes.push(newBase);
+            const makeThickSolidBySimple = rs.fn(() => Result.ok(createMockShape() as any));
+            setupShapeFactoryMock({ makeThickSolidBySimple });
+            const node = makeNode(5);
+            expect(node.shape.isOk).toBe(true);
+            expect(makeThickSolidBySimple).toHaveBeenCalledTimes(1);
+
+            node.updateSection(newBase.id, undefined, undefined);
+
+            expect(node.sectionNodeId).toBe(newBase.id);
+            expect(makeThickSolidBySimple).toHaveBeenCalledTimes(2);
+        });
+    });
 });

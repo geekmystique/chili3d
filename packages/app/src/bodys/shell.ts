@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
     type IDocument,
     type IFace,
@@ -30,6 +31,10 @@ export class ShellNode extends ReferenceShapeNode {
         return "body.shell";
     }
 
+    override get editCommandKey(): CommandKeys {
+        return "modify.shellEdit";
+    }
+
     @serialize()
     get sourceNodeIds(): string[] {
         return this.getPrivateValue("sourceNodeIds");
@@ -38,6 +43,17 @@ export class ShellNode extends ReferenceShapeNode {
     constructor(options: ShellOptions) {
         super(options);
         this.setPrivateValue("sourceNodeIds", options.sourceNodeIds);
+    }
+
+    /**
+     * Re-point this feature at a new set of sources and recompute once. Used
+     * by the "re-pick" edit flow to redirect an existing feature without
+     * deleting and recreating it (which would break anything downstream that
+     * references it).
+     */
+    updateSources(sourceNodeIds: string[]) {
+        this.setProperty("sourceNodeIds", sourceNodeIds);
+        this.setShape(this.generateShape());
     }
 
     override redirectReference(oldId: string, newId: string): boolean {

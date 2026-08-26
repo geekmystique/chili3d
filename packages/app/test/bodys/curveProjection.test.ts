@@ -303,4 +303,38 @@ describe("CurveProjectionNode", () => {
             expect(result.error).toContain("2");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.curveProjectionEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.curveProjectionEdit");
+        });
+    });
+
+    describe("updateReferences", () => {
+        test("should redirect to new curve and face references, and recompute", () => {
+            const newCurve = new EditableShapeNode({
+                document: doc,
+                name: "newCurve",
+                shape: selfTransforming(createMockShape({ shapeType: ShapeTypes.edge })),
+            });
+            const newFace = new EditableShapeNode({
+                document: doc,
+                name: "newFace",
+                shape: selfTransforming(createMockShape({ shapeType: ShapeTypes.face })),
+            });
+            nodes.push(newCurve, newFace);
+            setupShapeFactoryMock({ curveProjection: () => Result.ok(createMockShape() as any) });
+            const node = makeNode();
+            expect(node.shape.isOk).toBe(true);
+
+            node.updateReferences(
+                { nodeId: newCurve.id, shapeType: ShapeTypes.shape, index: -1 },
+                { nodeId: newFace.id, shapeType: ShapeTypes.shape, index: -1 },
+            );
+
+            expect(node.shapeNodeId).toBe(newCurve.id);
+            expect(node.faceNodeId).toBe(newFace.id);
+            expect(node.shape.isOk).toBe(true);
+        });
+    });
 });

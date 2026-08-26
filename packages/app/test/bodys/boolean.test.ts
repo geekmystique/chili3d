@@ -238,4 +238,42 @@ describe("BooleanNode", () => {
             expect(restored.toolNodeIds).toEqual([toolNode.id]);
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.booleanEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.booleanEdit");
+        });
+    });
+
+    describe("updateSelection", () => {
+        test("should redirect base and tools, and recompute", () => {
+            const newBase = new EditableShapeNode({
+                document: doc,
+                name: "newBase",
+                shape: createMockShape(),
+            });
+            const newTool = new EditableShapeNode({
+                document: doc,
+                name: "newTool",
+                shape: createMockShape(),
+            });
+            nodes.push(newBase, newTool);
+            let calls = 0;
+            setupShapeFactoryMock({
+                booleanFuse: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const node = makeNode("fuse");
+            expect(node.shape.isOk).toBe(true);
+            expect(calls).toBe(1);
+
+            node.updateSelection(newBase.id, [newTool.id]);
+
+            expect(node.baseNodeId).toBe(newBase.id);
+            expect(node.toolNodeIds).toEqual([newTool.id]);
+            expect(calls).toBe(2);
+        });
+    });
 });

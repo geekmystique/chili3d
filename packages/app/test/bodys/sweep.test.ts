@@ -327,6 +327,44 @@ describe("SweepedNode", () => {
             expect(result.error).toContain("3");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.sweepEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.sweepEdit");
+        });
+    });
+
+    describe("updateSelection", () => {
+        test("should redirect to new profiles, path and round, and recompute", () => {
+            const newProfile = new EditableShapeNode({
+                document: doc,
+                name: "newProfile",
+                shape: selfTransforming(createMockWire()),
+            });
+            const newPath = new EditableShapeNode({
+                document: doc,
+                name: "newPath",
+                shape: selfTransforming(createMockWire()),
+            });
+            nodes.push(newProfile, newPath);
+            const sweep = rs.fn(() => Result.ok(createMockShape()));
+            setupShapeFactoryMock({ sweep });
+            const node = makeNode(false);
+            expect(node.shape.isOk).toBe(true);
+            expect(sweep).toHaveBeenCalledTimes(1);
+
+            node.updateSelection(
+                [{ nodeId: newProfile.id, shapeType: ShapeTypes.shape, index: -1 }],
+                { nodeId: newPath.id, shapeType: ShapeTypes.shape, index: -1 },
+                true,
+            );
+
+            expect(node.profileNodeIds).toEqual([newProfile.id]);
+            expect(node.pathNodeId).toBe(newPath.id);
+            expect(node.round).toBe(true);
+            expect(sweep).toHaveBeenCalledTimes(2);
+        });
+    });
 });
 
 describe("sweepRefFromPick", () => {

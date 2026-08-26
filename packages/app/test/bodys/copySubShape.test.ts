@@ -181,4 +181,29 @@ describe("CopySubShapeNode", () => {
             expect(result.error).toContain("4");
         });
     });
+
+    describe("editCommandKey", () => {
+        test("should be modify.copySubShapeEdit", () => {
+            expect(makeNode().editCommandKey).toBe("modify.copySubShapeEdit");
+        });
+    });
+
+    describe("updateSelection", () => {
+        test("should redirect to a new source sub-shape and recompute", () => {
+            const newSource = new EditableShapeNode({
+                document: doc,
+                name: "newSource",
+                shape: selfTransforming(createMockShape({ shapeType: ShapeTypes.edge })),
+            });
+            nodes.push(newSource);
+            const node = makeNode();
+            expect(node.shape.isOk).toBe(true);
+
+            node.updateSelection(newSource.id, ShapeTypes.shape, -1);
+
+            expect(node.sourceNodeId).toBe(newSource.id);
+            expect(node.shape.isOk).toBe(true);
+            expect(node.shape.value).toBe(newSource.shape.value);
+        });
+    });
 });
