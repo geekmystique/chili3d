@@ -14,6 +14,7 @@ export * from "./line";
 export * from "./loft";
 export * from "./offset";
 export * from "./pipe";
+export * from "./placement";
 export * from "./point";
 export * from "./polygon";
 export * from "./pyramid";

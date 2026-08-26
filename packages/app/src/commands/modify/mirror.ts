@@ -12,6 +12,7 @@ import {
     type ShapeMeshData,
     type XYZ,
 } from "@chili3d/core";
+import type { PlacementKind } from "../../bodys/placement";
 import { TransformedCommand } from "./transformedCommand";
 
 @command({
@@ -19,6 +20,10 @@ import { TransformedCommand } from "./transformedCommand";
     icon: "icon-mirror",
 })
 export class Mirror extends TransformedCommand {
+    protected override get placementKind(): PlacementKind {
+        return "mirror";
+    }
+
     protected override transfrom(point: XYZ): Matrix4 {
         const center = this.stepDatas[0].point!;
         const xvec = this.stepDatas[0].view.workplane.normal;
