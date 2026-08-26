@@ -9,7 +9,7 @@ import {
     type INode,
     type IShapeFilter,
     PubSub,
-    ReferenceShapeNode,
+    type ReferenceShapeNode,
     Result,
     SelectNodeStep,
     ShapeNode,
@@ -102,6 +102,7 @@ export class ConvertToWire extends ConvertCommand {
         const wireBody = new WireNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = wireBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        wireBody.shape = shape;
 
         return Result.ok(wireBody);
     }
@@ -116,6 +117,7 @@ export class ConvertToFace extends ConvertCommand {
         const faceBody = new FaceNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = faceBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        faceBody.shape = shape;
 
         return Result.ok(faceBody);
     }
@@ -136,6 +138,7 @@ export class ConvertToShell extends ConvertCommand {
         const shellBody = new ShellNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = shellBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        shellBody.shape = shape;
 
         return Result.ok(shellBody);
     }
@@ -156,6 +159,7 @@ export class ConvertToSolid extends ConvertCommand {
         const solidBody = new SolidNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = solidBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        solidBody.shape = shape;
 
         return Result.ok(solidBody);
     }
@@ -176,6 +180,7 @@ export class ConvertToCompound extends ConvertCommand {
         const compoundBody = new CompoundNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = compoundBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        compoundBody.shape = shape;
 
         return Result.ok(compoundBody);
     }
