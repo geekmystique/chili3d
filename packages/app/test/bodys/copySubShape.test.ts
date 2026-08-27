@@ -59,7 +59,7 @@ describe("CopySubShapeNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.copySubShape");
+            expect(makeNode().name).toBe("body.copySubShape 1");
         });
     });
 

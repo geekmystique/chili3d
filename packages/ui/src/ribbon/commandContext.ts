@@ -41,6 +41,14 @@ export class CommandContext extends HTMLElement implements IDisposable {
     private selectionControlContainer?: HTMLDivElement;
     private closeIcon?: HTMLElement;
     private selectionCountCleanups: Array<() => void> = [];
+    /**
+     * The controller behind the currently-shown confirm/cancel control, if
+     * any - reused so pressing Enter in a property input (newInput) can
+     * confirm the in-progress pick step directly, the same action the
+     * checkmark button performs, instead of only committing the input's own
+     * value and leaving the step itself unconfirmed.
+     */
+    private activeController?: AsyncController;
 
     constructor(readonly command: ICommand) {
         super();
@@ -79,6 +87,7 @@ export class CommandContext extends HTMLElement implements IDisposable {
     private readonly showSelectionControl = (controller: AsyncController) => {
         if (this.selectionControlContainer) return;
         if (this.closeIcon) this.closeIcon.style.display = "none";
+        this.activeController = controller;
 
         this.selectionControlContainer = div(
             { className: style.selectionControl },
@@ -143,6 +152,7 @@ export class CommandContext extends HTMLElement implements IDisposable {
     private readonly clearSelectionControl = () => {
         this.selectionControlContainer?.remove();
         this.selectionControlContainer = undefined;
+        this.activeController = undefined;
         if (this.closeIcon) this.closeIcon.style.display = "";
         this.selectionCountCleanups.forEach((fn) => fn());
         this.selectionCountCleanups = [];
@@ -297,6 +307,14 @@ export class CommandContext extends HTMLElement implements IDisposable {
                     if (e.key === "Enter") {
                         const input = e.target as HTMLInputElement;
                         input.blur();
+                        // Blur alone only commits the value onto the command; it doesn't
+                        // finish an in-progress pick step (HotkeyService's own Enter
+                        // handling ignores this keydown since its target is an <input>).
+                        // Confirm it directly - the same action the checkmark button
+                        // performs - so typing a value and pressing Enter completes in
+                        // one press instead of needing a second Enter after blur moves
+                        // focus off the input.
+                        this.activeController?.success();
                     }
                 },
             }),

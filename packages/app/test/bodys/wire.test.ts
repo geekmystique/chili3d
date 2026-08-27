@@ -48,7 +48,7 @@ describe("WireNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(createMockEdge()).name).toBe("body.wire");
+            expect(makeNode(createMockEdge()).name).toBe("body.wire 1");
         });
     });
 

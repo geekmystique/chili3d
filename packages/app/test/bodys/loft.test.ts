@@ -71,7 +71,7 @@ describe("LoftNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.loft");
+            expect(makeNode().name).toBe("body.loft 1");
         });
     });
 

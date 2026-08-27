@@ -77,7 +77,7 @@ describe("FaceNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(createMockEdge()).name).toBe("body.face");
+            expect(makeNode(createMockEdge()).name).toBe("body.face 1");
         });
 
         test("should accept an empty sourceNodeIds array", () => {

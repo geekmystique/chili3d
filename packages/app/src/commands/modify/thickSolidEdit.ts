@@ -1,18 +1,9 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import {
-    command,
-    MultistepCommand,
-    PubSub,
-    type ShapeNode,
-    type ShapeType,
-    ShapeTypes,
-    Transaction,
-} from "@chili3d/core";
-import { sectionRefFromPick } from "../../bodys";
+import { command } from "@chili3d/core";
 import { ThickSolidNode } from "../../bodys/thickSolid";
-import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
+import { singleSectionEditOf } from "./singleSectionEditMixin";
 
 /**
  * Re-picks the section (and/or sub-shape within it) of an existing
@@ -26,45 +17,4 @@ import { KeepExistingSelectionStep } from "./keepExistingSelectionStep";
     key: "modify.thickSolidEdit",
     icon: "icon-thickSolid",
 })
-export class ThickSolidEditCommand extends MultistepCommand {
-    private targetNode?: ThickSolidNode;
-
-    protected override async canExcute(): Promise<boolean> {
-        const node = this.document.selection
-            .getSelectedNodes()
-            .find((n): n is ThickSolidNode => n instanceof ThickSolidNode);
-        if (!node) {
-            PubSub.default.pub("showToast", "toast.select.noSelected");
-            return false;
-        }
-        this.targetNode = node;
-        return true;
-    }
-
-    protected override getSteps() {
-        return [
-            new KeepExistingSelectionStep(
-                (ShapeTypes.face | ShapeTypes.edge | ShapeTypes.wire) as ShapeType,
-                "prompt.select.shape",
-            ),
-        ];
-    }
-
-    protected override executeMainTask() {
-        const node = this.targetNode;
-        if (!node) return;
-
-        const pick = this.stepDatas[0].shapes[0];
-
-        Transaction.execute(this.document, `edit ${node.name}`, () => {
-            if (pick) {
-                const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
-                node.updateSection((pick.owner.node as ShapeNode).id, shapeType, index);
-            } else {
-                node.updateSection(node.sectionNodeId, node.sectionShapeType, node.sectionIndex);
-            }
-        });
-
-        this.document.visual.update();
-    }
-}
+export class ThickSolidEditCommand extends singleSectionEditOf(ThickSolidNode) {}

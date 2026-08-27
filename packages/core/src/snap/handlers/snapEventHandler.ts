@@ -266,14 +266,23 @@ export abstract class SnapEventHandler<D extends SnapData = SnapData> implements
         if (!["#", "-", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(event.key)) return;
 
         this._state = "inputing";
-        PubSub.default.pub("showInput", event.key, (text: string) => {
-            const error = this.inputError(text);
-            if (error) return Result.err(error);
+        PubSub.default.pub("showInput", event.key, (text: string) => this.applyTypedInput(view, text));
+    }
 
-            this._snaped = this.getPointFromInput(view, text);
-            this.handleSuccess();
-            return Result.ok(text);
-        });
+    /**
+     * Apply an exact typed value and finish the step - the same action typing
+     * a digit then Enter into the in-view flyout performs (handleNumericInput
+     * above), but callable directly from any other UI surface that already
+     * has the raw text (e.g. a persistent properties-panel field mirroring
+     * this step's value), not just that flyout's own keydown-triggered path.
+     */
+    applyTypedInput(view: IView, text: string): Result<string, I18nKeys> {
+        const error = this.inputError(text);
+        if (error) return Result.err(error);
+
+        this._snaped = this.getPointFromInput(view, text);
+        this.handleSuccess();
+        return Result.ok(text);
     }
 
     protected abstract getPointFromInput(view: IView, text: string): SnapResult;

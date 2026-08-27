@@ -103,15 +103,21 @@ export class ExtrudeNode extends ReferenceShapeNode {
     }
 
     /**
-     * Re-point this feature at a new section (and/or sub-shape within it) and
-     * recompute once. Used by the "re-pick" edit flow to redirect an existing
-     * feature without deleting and recreating it (which would break anything
-     * downstream that references it).
+     * Re-point this feature at a new section (and/or sub-shape within it)
+     * and/or length, and recompute once. Used by the "re-pick" edit flow to
+     * redirect an existing feature without deleting and recreating it (which
+     * would break anything downstream that references it).
      */
-    updateSection(nodeId: string, shapeType: ShapeType | undefined, index: number | undefined) {
+    updateSection(
+        nodeId: string,
+        shapeType: ShapeType | undefined,
+        index: number | undefined,
+        length: number,
+    ) {
         this.setProperty("sectionNodeId", nodeId);
         this.setProperty("sectionShapeType", shapeType);
         this.setProperty("sectionIndex", index);
+        this.setProperty("length", length);
         this.setShape(this.generateShape());
     }
 

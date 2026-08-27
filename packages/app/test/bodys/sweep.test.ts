@@ -71,7 +71,7 @@ describe("SweepedNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.sweep");
+            expect(makeNode().name).toBe("body.sweep 1");
         });
 
         test("should default round to false", () => {

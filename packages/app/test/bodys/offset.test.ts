@@ -68,7 +68,7 @@ describe("OffsetNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(5).name).toBe("body.offset");
+            expect(makeNode(5).name).toBe("body.offset 1");
         });
     });
 

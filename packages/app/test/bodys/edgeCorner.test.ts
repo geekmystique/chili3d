@@ -62,11 +62,11 @@ describe("EdgeCornerNode", () => {
         });
 
         test("should name a fillet node from display() despite the base class naming it early", () => {
-            expect(makeNode("fillet").name).toBe("body.fillet");
+            expect(makeNode("fillet").name).toBe("body.fillet 1");
         });
 
         test("should name a chamfer node from display() despite the base class naming it early", () => {
-            expect(makeNode("chamfer").name).toBe("body.chamfer");
+            expect(makeNode("chamfer").name).toBe("body.chamfer 1");
         });
     });
 

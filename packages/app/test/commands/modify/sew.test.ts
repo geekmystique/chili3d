@@ -93,7 +93,7 @@ describe("Sew", () => {
 
             // The sewed node lands on the document root.
             expect(rootNode.added).toHaveLength(1);
-            expect((rootNode.added[0] as any).name).toBe("sewed");
+            expect((rootNode.added[0] as any).name).toBe("sewed 1");
             // Each source node was removed from its own parent.
             expect(parent1.removed).toHaveLength(1);
         });

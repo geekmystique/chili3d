@@ -67,7 +67,7 @@ describe("CurveProjectionNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.curveProjection");
+            expect(makeNode().name).toBe("body.curveProjection 1");
         });
     });
 

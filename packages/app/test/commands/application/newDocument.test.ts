@@ -18,7 +18,7 @@ describe("NewDocument", () => {
         expect(data.isApplicationCommand).toBe(true);
     });
 
-    test("should call app.newDocument with incrementing name", async () => {
+    test("should call app.newDocument with an 'Untitled N' name", async () => {
         const app = createMockApplication();
         let newDocName = "";
         app.newDocument = async (name: string) => {
@@ -29,6 +29,22 @@ describe("NewDocument", () => {
         const cmd = new NewDocument();
         await cmd.execute(app);
 
-        expect(newDocName).toContain("undefined");
+        expect(newDocName).toMatch(/^Untitled \d+$/);
+    });
+
+    test("should increment the number on each call", async () => {
+        const app = createMockApplication();
+        const names: string[] = [];
+        app.newDocument = async (name: string) => {
+            names.push(name);
+            return {} as any;
+        };
+
+        const cmd = new NewDocument();
+        await cmd.execute(app);
+        await cmd.execute(app);
+
+        const [first, second] = names.map((n) => Number(n.match(/\d+$/)![0]));
+        expect(second).toBe(first + 1);
     });
 });

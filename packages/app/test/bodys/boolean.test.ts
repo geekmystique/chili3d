@@ -41,7 +41,7 @@ describe("BooleanNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.bolean");
+            expect(makeNode().name).toBe("body.bolean 1");
         });
     });
 

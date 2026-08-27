@@ -35,7 +35,7 @@ describe("PlacementNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.placement");
+            expect(makeNode().name).toBe("body.placement 1");
         });
     });
 

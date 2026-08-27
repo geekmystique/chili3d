@@ -65,7 +65,7 @@ describe("SectionNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode().name).toBe("body.section");
+            expect(makeNode().name).toBe("body.section 1");
         });
     });
 

@@ -20,9 +20,11 @@ import style from "./timelineTrack.module.css";
 
 /**
  * One document's timeline strip: a flat, left-to-right list of every
- * GeometryNode (body/feature) in the document, ordered by GeometryNode.createdOrder
- * (true creation order) rather than tree position. Reorganizing the project
- * tree (moving/reparenting nodes) does not reorder this strip.
+ * GeometryNode (body/feature) in the document, ordered by dependency chain
+ * (a source before whatever references it) with GeometryNode.createdOrder as
+ * the tie-break wherever the chain itself doesn't force an order - not tree
+ * position. Reorganizing the project tree (moving/reparenting nodes) does
+ * not reorder this strip.
  */
 export class TimelineTrack extends HTMLElement {
     private readonly nodeMap = new Map<GeometryNode, TimelineItem>();
@@ -45,6 +47,7 @@ export class TimelineTrack extends HTMLElement {
         this.document.modelManager.addNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.sub(this.handleSelectionChanged);
         PubSub.default.sub("closeCommandContext", this.restorePreview);
+        PubSub.default.sub("closeCommandContext", this.reorderByCreatedOrder);
         this.addEventListener("click", this.onClick);
         this.addEventListener("dblclick", this.onDoubleClick);
         this.addEventListener("contextmenu", this.onContextMenu);
@@ -54,6 +57,7 @@ export class TimelineTrack extends HTMLElement {
         this.document.modelManager.removeNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
         PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("dblclick", this.onDoubleClick);
         this.removeEventListener("contextmenu", this.onContextMenu);
@@ -62,6 +66,7 @@ export class TimelineTrack extends HTMLElement {
     dispose(): void {
         this.restorePreview();
         PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
         this.contextMenu.dispose();
         this.nodeMap.forEach((item) => {
             item.dispose();
@@ -120,10 +125,28 @@ export class TimelineTrack extends HTMLElement {
 
     private readonly onPreviewedNodeChanged = () => this.restorePreview();
 
+    /**
+     * Dependency order first (a source before whatever now references it),
+     * created order as the tie-break wherever the dependency chain itself
+     * doesn't dictate a position. Plain creation order alone would freeze a
+     * retroactively-edited feature at its literal construction time - e.g.
+     * fillet a boolean's already-consumed cutting tool, splicing the fillet
+     * in ahead of the boolean - at the end of the strip, after the boolean
+     * that now depends on it, instead of before it.
+     */
     private collectExisting(node: INode): GeometryNode[] {
         const result: GeometryNode[] = [];
         this.collectExistingRecursive(node, result);
-        return result.sort((a, b) => a.createdOrder - b.createdOrder);
+
+        const graph = this.document.modelManager.dependencyGraph;
+        if (!graph) return result.sort((a, b) => a.createdOrder - b.createdOrder);
+
+        const byId = new Map(result.map((n) => [n.id, n]));
+        const order = graph.orderAll(
+            byId.keys(),
+            (a, b) => byId.get(a)!.createdOrder - byId.get(b)!.createdOrder,
+        );
+        return order.map((id) => byId.get(id)!);
     }
 
     private collectExistingRecursive(node: INode, result: GeometryNode[]): void {
@@ -161,17 +184,27 @@ export class TimelineTrack extends HTMLElement {
 
     /**
      * DOM append() moves an already-attached element rather than duplicating
-     * it, so walking every known item in createdOrder and re-appending it is
-     * an O(n log n) way to keep the strip's visual order in sync - needed
-     * because a new node can be created anywhere in the tree, not just at
-     * the end, and the tree itself can be reorganized independently.
+     * it, so walking every known item in dependency/created order and
+     * re-appending it is an O(n log n) way to keep the strip's visual order
+     * in sync - needed because a new node can be created anywhere in the
+     * tree, not just at the end, and the tree itself can be reorganized
+     * independently.
+     *
+     * Also subscribed directly to closeCommandContext (every command's own
+     * lifecycle fires this once it finishes, success or not): a retroactive
+     * splice - fillet a boolean's already-consumed source, say - redirects a
+     * dependency via redirectReference, which changes what order() should
+     * produce, but isn't itself a tree add/remove/move, so handleNodeChanged
+     * below never sees it. Structural changes still reorder immediately (for
+     * live feedback as nodes are added); this is the catch-all that keeps the
+     * strip correct once the whole operation - splice included - has settled.
      */
-    private reorderByCreatedOrder(): void {
+    private readonly reorderByCreatedOrder = (): void => {
         this.collectExisting(this.document.modelManager.rootNode).forEach((node) => {
             const item = this.nodeMap.get(node);
             if (item) this.append(item);
         });
-    }
+    };
 
     private readonly handleSelectionChanged = (selected: INode[]) => {
         const related = this.collectRelatedIds(selected);

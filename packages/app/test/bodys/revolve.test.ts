@@ -60,7 +60,7 @@ describe("RevolvedNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(90).name).toBe("body.revol");
+            expect(makeNode(90).name).toBe("body.revol 1");
         });
     });
 

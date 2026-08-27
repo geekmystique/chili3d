@@ -21,6 +21,13 @@ export type OnNodeChanged = (records: NodeRecord[]) => void;
 
 export class ModelManager extends Observable {
     private readonly _nodeChangedObservers = new Set<OnNodeChanged>();
+    /**
+     * When set, notifyNodeChanged collects into this array instead of telling
+     * observers - see deserialize(), which uses this to hold off every "add"
+     * notification generated while rebuilding the tree until the whole tree
+     * (and rootNode) actually exists.
+     */
+    private batchedRecords?: NodeRecord[];
 
     readonly components: ObservableCollection<Component> = new ObservableCollection();
     readonly materials: ObservableCollection<Material> = new ObservableCollection();
@@ -75,6 +82,10 @@ export class ModelManager extends Observable {
 
     notifyNodeChanged(records: NodeRecord[]) {
         Transaction.add(this.document, new NodeLinkedListHistoryRecord(records));
+        if (this.batchedRecords) {
+            this.batchedRecords.push(...records);
+            return;
+        }
         this._nodeChangedObservers.forEach((x) => {
             x(records);
         });
@@ -113,8 +124,29 @@ export class ModelManager extends Observable {
             ...data.materials.map((x: Serialized) => Serializer.deserializeObject(this.document, x)),
         );
 
+        // Rebuilding the tree fires an "add" notification per node (add() calls
+        // notifyNodeChanged unconditionally) - observers like the 3D view react
+        // by reading each node's mesh/shape right away, which for a
+        // ReferenceShapeNode is that node's first-ever shape computation. That
+        // resolves other nodes by id through this.rootNode, which isn't
+        // assigned until this method returns, so every such lookup fails while
+        // the tree is still being rebuilt - and since the lazy shape getter
+        // only ever computes once, that failure is permanent, even after the
+        // referenced node exists moments later. Collect every notification
+        // instead of delivering it immediately, and fire them all as one batch
+        // only once the whole tree (and rootNode) actually exists, so every
+        // reference is resolvable by the time anything reads it.
+        this.batchedRecords = [];
         const rootNode = await NodeUtils.deserializeNode(this.document, data.nodes);
         this.rootNode = rootNode!;
+
+        const records = this.batchedRecords;
+        this.batchedRecords = undefined;
+        if (records.length > 0) {
+            this._nodeChangedObservers.forEach((x) => {
+                x(records);
+            });
+        }
     }
 
     override disposeInternal(): void {
