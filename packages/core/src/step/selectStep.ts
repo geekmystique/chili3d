@@ -22,12 +22,16 @@ export interface SelectShapeOptions {
     canFinish?: (selected: VisualShapeData[]) => boolean;
     beforeSelection?: () => void;
     afterSelection?: () => void;
+    /** Show the confirm/cancel control regardless of `multiple` - see PickShapeOptions.showControl. */
+    showControl?: boolean;
 }
 
 export interface SelectNodeOptions {
     multiple?: boolean;
     filter?: INodeFilter;
     keepSelection?: boolean;
+    /** Show the confirm/cancel control regardless of `multiple` - see PickNodeOptions.showControl. */
+    showControl?: boolean;
 }
 
 export abstract class SelectStep implements IStep {
@@ -61,6 +65,7 @@ export class SelectShapeStep extends SelectStep {
             selectedState: this.options?.selectedState,
             highlightState: this.options?.highlightState,
             canFinish: this.options?.canFinish,
+            showControl: this.options?.showControl,
         });
         if (shapes.length === 0) return undefined;
         return {
@@ -115,6 +120,7 @@ export class SelectNodeStep implements IStep {
             const nodes = await document.picker.pickNode(this.prompt, controller, {
                 nodeFilter: this.options?.filter,
                 multi: this.options?.multiple,
+                showControl: this.options?.showControl,
             });
             if (nodes.length === 0) return undefined;
             return {

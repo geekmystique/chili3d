@@ -286,6 +286,18 @@ describe("Picker", () => {
 
             expect(pickAsyncArgs[3]).toBe(true);
         });
+
+        test("should force showControl=true via options.showControl even when multi is false", async () => {
+            let pickAsyncArgs: any[] = [];
+            picker.pickAsync = async (...args: any[]) => {
+                pickAsyncArgs = args;
+            };
+
+            const controller = new AsyncController();
+            await picker.pickNode("common.ok" as I18nKeys, controller, { multi: false, showControl: true });
+
+            expect(pickAsyncArgs[3]).toBe(true);
+        });
     });
 
     // ── pickShape ─────────────────────────────────────────────────
@@ -322,6 +334,18 @@ describe("Picker", () => {
 
             const controller = new AsyncController();
             await picker.pickShape("common.ok" as I18nKeys, controller, { multi: true });
+
+            expect(pickAsyncArgs[3]).toBe(true);
+        });
+
+        test("should force showControl=true via options.showControl even when multi is false", async () => {
+            let pickAsyncArgs: any[] = [];
+            picker.pickAsync = async (...args: any[]) => {
+                pickAsyncArgs = args;
+            };
+
+            const controller = new AsyncController();
+            await picker.pickShape("common.ok" as I18nKeys, controller, { multi: false, showControl: true });
 
             expect(pickAsyncArgs[3]).toBe(true);
         });
