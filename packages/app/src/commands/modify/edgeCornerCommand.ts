@@ -176,6 +176,12 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
             edgeIndexes,
             value: this.cornerValue,
         });
+        // Keep the base's material and name - EdgeCornerNode's own constructor
+        // defaults both (materialId to the document's first material, name to
+        // a generic "Fillet"/"Chamfer"), same as replaceShapeNode does for the
+        // planar path below.
+        featureNode.materialId = node.materialId;
+        featureNode.name = node.name;
 
         if (!featureNode.shape.isOk) {
             PubSub.default.pub("displayError", featureNode.shape.error);

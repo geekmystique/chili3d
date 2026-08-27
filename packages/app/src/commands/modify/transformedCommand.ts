@@ -122,6 +122,12 @@ export abstract class TransformedCommand extends MultistepCommand {
             kind: this.placementKind,
             delta: transform,
         });
+        // Keep the base's material and name - PlacementNode's own constructor
+        // defaults both (materialId to the document's first material, name to
+        // the generic "Placement"), same as the old in-place mutation/clone()
+        // did for a non-ShapeNode target above.
+        placement.materialId = node.materialId;
+        placement.name = node.name;
 
         if (!placement.shape.isOk) {
             PubSub.default.pub("showToast", "error.default:{0}", placement.shape.error);
