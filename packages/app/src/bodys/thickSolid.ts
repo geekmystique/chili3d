@@ -6,14 +6,15 @@ import {
     type I18nKeys,
     type IDocument,
     type IShape,
-    type ISubShape,
     property,
     ReferenceShapeNode,
     Result,
     type ShapeType,
+    ShapeTypes,
     serializable,
     serialize,
 } from "@chili3d/core";
+import { resolveSweepRefShape, type SweepRef } from "./sweep";
 
 export interface ThickSolidOptions {
     document: IDocument;
@@ -102,23 +103,6 @@ export class ThickSolidNode extends ReferenceShapeNode {
         return this.sectionNodeId;
     }
 
-    /**
-     * The base node's own shape, or - when sectionIndex is set - the
-     * sub-shape at that index within it. See ExtrudeNode.resolveSection for
-     * the same indexing scheme (positions into the base shape's own
-     * findSubShapes() list for sectionShapeType).
-     */
-    private resolveSection(base: IShape): Result<IShape> {
-        if (this.sectionIndex === undefined || this.sectionShapeType === undefined) {
-            return Result.ok(base);
-        }
-        const sub = base.findSubShapes(this.sectionShapeType)[this.sectionIndex] as ISubShape | undefined;
-        if (!sub) {
-            return Result.err(`ThickSolid: section index ${this.sectionIndex} no longer exists`);
-        }
-        return Result.ok(sub);
-    }
-
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.sectionNodeId);
         if (!base) return Result.err(`ThickSolid: section shape "${this.sectionNodeId}" no longer exists`);
@@ -126,7 +110,16 @@ export class ThickSolidNode extends ReferenceShapeNode {
 
         this.subscribeTo([base]);
 
-        const sectionResult = this.resolveSection(base.shape.value.transformedMul(base.transform));
+        const ref: SweepRef = {
+            nodeId: this.sectionNodeId,
+            shapeType: this.sectionShapeType ?? ShapeTypes.shape,
+            index: this.sectionIndex ?? -1,
+        };
+        const sectionResult = resolveSweepRefShape(
+            base.shape.value.transformedMul(base.transform),
+            ref,
+            "ThickSolid",
+        );
         if (!sectionResult.isOk) return sectionResult;
 
         return shapeFactory.makeThickSolidBySimple(sectionResult.value, this.thickness);

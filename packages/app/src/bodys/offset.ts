@@ -8,7 +8,6 @@ import {
     type IEdge,
     type IFace,
     type IShape,
-    type ISubShape,
     type IWire,
     type JoinType,
     property,
@@ -20,6 +19,7 @@ import {
     serialize,
     type XYZ,
 } from "@chili3d/core";
+import { resolveSweepRefShape, type SweepRef } from "./sweep";
 
 export interface OffsetOptions {
     document: IDocument;
@@ -131,23 +131,6 @@ export class OffsetNode extends ReferenceShapeNode {
         return this.sectionNodeId;
     }
 
-    /**
-     * The base node's own shape, or - when sectionIndex is set - the
-     * sub-shape at that index within it. See ExtrudeNode.resolveSection for
-     * the same indexing scheme (positions into the base shape's own
-     * findSubShapes() list for sectionShapeType).
-     */
-    private resolveSection(base: IShape): Result<IShape> {
-        if (this.sectionIndex === undefined || this.sectionShapeType === undefined) {
-            return Result.ok(base);
-        }
-        const sub = base.findSubShapes(this.sectionShapeType)[this.sectionIndex] as ISubShape | undefined;
-        if (!sub) {
-            return Result.err(`Offset: section index ${this.sectionIndex} no longer exists`);
-        }
-        return Result.ok(sub);
-    }
-
     override generateShape(): Result<IShape> {
         const base = this.resolveInput(this.sectionNodeId);
         if (!base) return Result.err(`Offset: section shape "${this.sectionNodeId}" no longer exists`);
@@ -155,7 +138,16 @@ export class OffsetNode extends ReferenceShapeNode {
 
         this.subscribeTo([base]);
 
-        const sectionResult = this.resolveSection(base.shape.value.transformedMul(base.transform));
+        const ref: SweepRef = {
+            nodeId: this.sectionNodeId,
+            shapeType: this.sectionShapeType ?? ShapeTypes.shape,
+            index: this.sectionIndex ?? -1,
+        };
+        const sectionResult = resolveSweepRefShape(
+            base.shape.value.transformedMul(base.transform),
+            ref,
+            "Offset",
+        );
         if (!sectionResult.isOk) return sectionResult;
         const shape = sectionResult.value;
 
