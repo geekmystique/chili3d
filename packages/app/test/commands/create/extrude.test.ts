@@ -8,6 +8,7 @@ import {
     Result,
     type ShapeType,
     ShapeTypes,
+    SnapEventHandler,
     XYZ,
 } from "@chili3d/core";
 import { afterAll, beforeAll, describe, expect, rs, test } from "@rstest/core";
@@ -61,6 +62,50 @@ describe("ExtrudeCommand", () => {
         const cmd = new ExtrudeCommand();
         const steps = (cmd as any).getSteps();
         expect(steps.length).toBe(2);
+    });
+
+    describe("length property", () => {
+        test("should default to 10", () => {
+            const cmd = new ExtrudeCommand();
+            wireCommand(cmd);
+            expect(cmd.length).toBe(10);
+        });
+
+        test("setting it to the same value should be a no-op (no active step to finish)", () => {
+            const cmd = new ExtrudeCommand();
+            wireCommand(cmd);
+            expect(() => {
+                cmd.length = 10;
+            }).not.toThrow();
+            expect(cmd.length).toBe(10);
+        });
+
+        test("typing a new value should apply it through the active SnapEventHandler", () => {
+            const cmd = new ExtrudeCommand();
+            const { doc } = wireCommand(cmd);
+            const applyTypedInput = rs.fn(() => Result.ok("25"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            cmd.length = 25;
+
+            expect(cmd.length).toBe(25);
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "25");
+        });
+
+        test("typing a new value should do nothing to the view when no SnapEventHandler is active", () => {
+            const cmd = new ExtrudeCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+
+            expect(() => {
+                cmd.length = 25;
+            }).not.toThrow();
+            expect(cmd.length).toBe(25);
+        });
     });
 
     describe("geometryNode", () => {
@@ -354,6 +399,15 @@ describe("ExtrudeCommand", () => {
             const data = (cmd as any).getLengthStepData();
             // point essentially on the section plane → dist ≈ 0
             expect(data.preview(new XYZ({ x: 1, y: 2, z: 0 }))).toEqual([]);
+        });
+
+        test("preview should reflect the live drag distance in the length property, without finishing anything", () => {
+            const cmd = buildFaceCommand(true, () => ({ isPlanar: () => true }));
+            const data = (cmd as any).getLengthStepData();
+
+            data.preview(new XYZ({ x: 0, y: 0, z: 7 }));
+
+            expect(cmd.length).toBeCloseTo(7, 6);
         });
 
         test("preview of a planar face should mesh a prism", () => {
