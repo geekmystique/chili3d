@@ -106,6 +106,23 @@ export class DependencyGraph {
         return this.collectUpstream(id);
     }
 
+    /**
+     * A topological ordering of `ids` (dependencies before dependents),
+     * using `tieBreak` to choose among nodes that are simultaneously free to
+     * be placed - i.e. that have no forced order between them, whether
+     * because neither depends on the other or because neither is even
+     * registered in this graph (a plain primitive that never calls
+     * subscribeTo has no edges at all). Used by the timeline to order
+     * features by dependency chain first, falling back to creation order
+     * wherever the chain itself doesn't dictate a position - so a feature
+     * retroactively spliced onto an already-consumed source (edit a fillet
+     * onto a boolean's cutting tool, say) lands before the feature that now
+     * depends on it, not at the end where it happened to be created.
+     */
+    orderAll(ids: Iterable<string>, tieBreak: (a: string, b: string) => number): string[] {
+        return this.topologicalOrder(new Set(ids), tieBreak);
+    }
+
     private collectDownstream(startId: string): Set<string> {
         return this.collect(startId, this._dependents);
     }
@@ -128,8 +145,16 @@ export class DependencyGraph {
         return result;
     }
 
-    /** Kahn's algorithm restricted to `affected`, ordering only by edges within that set. */
-    private topologicalOrder(affected: Set<string>): string[] {
+    /**
+     * Kahn's algorithm restricted to `affected`, ordering only by edges
+     * within that set. Without `tieBreak`, nodes that become free to place
+     * at the same time queue in arbitrary (Set-iteration) order - fine for
+     * propagate(), which only needs dependencies recomputed before
+     * dependents. With `tieBreak`, the queue is kept sorted by it, so among
+     * several nodes simultaneously free to place, the one `tieBreak` orders
+     * first is chosen first (see orderAll()).
+     */
+    private topologicalOrder(affected: Set<string>, tieBreak?: (a: string, b: string) => number): string[] {
         const inDegree = new Map<string, number>();
         affected.forEach((id) => {
             const deps = this._dependsOn.get(id);
@@ -144,17 +169,21 @@ export class DependencyGraph {
         inDegree.forEach((count, id) => {
             if (count === 0) queue.push(id);
         });
+        if (tieBreak) queue.sort(tieBreak);
 
         const order: string[] = [];
         while (queue.length > 0) {
             const id = queue.shift() as string;
             order.push(id);
+            const newlyReady: string[] = [];
             this._dependents.get(id)?.forEach((dependentId) => {
                 if (!affected.has(dependentId)) return;
                 const remaining = (inDegree.get(dependentId) ?? 0) - 1;
                 inDegree.set(dependentId, remaining);
-                if (remaining === 0) queue.push(dependentId);
+                if (remaining === 0) newlyReady.push(dependentId);
             });
+            queue.push(...newlyReady);
+            if (tieBreak) queue.sort(tieBreak);
         }
 
         if (order.length < affected.size) {

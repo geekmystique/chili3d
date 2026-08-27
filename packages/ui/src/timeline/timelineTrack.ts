@@ -20,9 +20,11 @@ import style from "./timelineTrack.module.css";
 
 /**
  * One document's timeline strip: a flat, left-to-right list of every
- * GeometryNode (body/feature) in the document, ordered by GeometryNode.createdOrder
- * (true creation order) rather than tree position. Reorganizing the project
- * tree (moving/reparenting nodes) does not reorder this strip.
+ * GeometryNode (body/feature) in the document, ordered by dependency chain
+ * (a source before whatever references it) with GeometryNode.createdOrder as
+ * the tie-break wherever the chain itself doesn't force an order - not tree
+ * position. Reorganizing the project tree (moving/reparenting nodes) does
+ * not reorder this strip.
  */
 export class TimelineTrack extends HTMLElement {
     private readonly nodeMap = new Map<GeometryNode, TimelineItem>();
@@ -120,10 +122,28 @@ export class TimelineTrack extends HTMLElement {
 
     private readonly onPreviewedNodeChanged = () => this.restorePreview();
 
+    /**
+     * Dependency order first (a source before whatever now references it),
+     * created order as the tie-break wherever the dependency chain itself
+     * doesn't dictate a position. Plain creation order alone would freeze a
+     * retroactively-edited feature at its literal construction time - e.g.
+     * fillet a boolean's already-consumed cutting tool, splicing the fillet
+     * in ahead of the boolean - at the end of the strip, after the boolean
+     * that now depends on it, instead of before it.
+     */
     private collectExisting(node: INode): GeometryNode[] {
         const result: GeometryNode[] = [];
         this.collectExistingRecursive(node, result);
-        return result.sort((a, b) => a.createdOrder - b.createdOrder);
+
+        const graph = this.document.modelManager.dependencyGraph;
+        if (!graph) return result.sort((a, b) => a.createdOrder - b.createdOrder);
+
+        const byId = new Map(result.map((n) => [n.id, n]));
+        const order = graph.orderAll(
+            byId.keys(),
+            (a, b) => byId.get(a)!.createdOrder - byId.get(b)!.createdOrder,
+        );
+        return order.map((id) => byId.get(id)!);
     }
 
     private collectExistingRecursive(node: INode, result: GeometryNode[]): void {

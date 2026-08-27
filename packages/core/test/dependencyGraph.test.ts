@@ -180,6 +180,81 @@ describe("DependencyGraph", () => {
         });
     });
 
+    describe("orderAll", () => {
+        function byCreatedOrder(order: Map<string, number>) {
+            return (a: string, b: string) => order.get(a)! - order.get(b)!;
+        }
+
+        test("should place a retroactively-spliced dependency before its dependent, even though it was created later", () => {
+            // Box1, Box2 created first; Boolean1 (base Box1, tool Box2) created next;
+            // Fillet1 created last, targeting Box2, spliced in ahead of Boolean1 -
+            // matches editing a fillet onto a boolean's already-consumed cutting tool.
+            const graph = new DependencyGraph();
+            const order: string[] = [];
+            const createdOrder = new Map([
+                ["box1", 1],
+                ["box2", 2],
+                ["boolean1", 3],
+                ["fillet1", 4],
+            ]);
+            graph.setDependencies(node("boolean1", order), ["box1", "fillet1"]);
+            graph.setDependencies(node("fillet1", order), ["box2"]);
+
+            const result = graph.orderAll(
+                ["box1", "box2", "boolean1", "fillet1"],
+                byCreatedOrder(createdOrder),
+            );
+
+            expect(result).toEqual(["box1", "box2", "fillet1", "boolean1"]);
+        });
+
+        test("should tie-break unrelated nodes by createdOrder, unaffected by a dependency chain elsewhere", () => {
+            const graph = new DependencyGraph();
+            const order: string[] = [];
+            const createdOrder = new Map([
+                ["box1", 1],
+                ["box2", 2],
+                ["box3", 3],
+                ["boolean1", 4],
+                ["fillet1", 5],
+            ]);
+            graph.setDependencies(node("boolean1", order), ["box1", "fillet1"]);
+            graph.setDependencies(node("fillet1", order), ["box2"]);
+            // box3 has no dependency relationship to anything else in the set.
+
+            const result = graph.orderAll(
+                ["box1", "box2", "box3", "boolean1", "fillet1"],
+                byCreatedOrder(createdOrder),
+            );
+
+            expect(result).toEqual(["box1", "box2", "box3", "fillet1", "boolean1"]);
+        });
+
+        test("should fall back to pure createdOrder when there are no edges at all among the given ids", () => {
+            const graph = new DependencyGraph();
+            const createdOrder = new Map([
+                ["c", 3],
+                ["a", 1],
+                ["b", 2],
+            ]);
+
+            const result = graph.orderAll(["c", "a", "b"], byCreatedOrder(createdOrder));
+
+            expect(result).toEqual(["a", "b", "c"]);
+        });
+
+        test("should still place every id even if tieBreak is never actually needed to decide anything", () => {
+            const graph = new DependencyGraph();
+            const order: string[] = [];
+            graph.setDependencies(node("b", order), ["a"]);
+            graph.setDependencies(node("c", order), ["b"]);
+
+            const result = graph.orderAll(["a", "b", "c"], () => 0);
+
+            expect(result).toEqual(["a", "b", "c"]);
+        });
+    });
+
     describe("getDirectDependencies", () => {
         test("should return only one-hop dependencies, not transitive ones", () => {
             // a -> b -> d ; a -> c -> d (same diamond as above)

@@ -304,6 +304,63 @@ describe("TimelineTrack", () => {
         });
     });
 
+    describe("dependency-aware ordering", () => {
+        test("a feature retroactively spliced onto an already-consumed source lands before its new dependent, not at the end", () => {
+            // Reproduces: cut Box1 with Box2 (Boolean1 depends on both), then
+            // double-click Box2 on the timeline and fillet it. Fillet1 is created
+            // last (highest createdOrder) but is spliced in ahead of Boolean1 -
+            // Boolean1 now depends on Fillet1, not Box2 directly - so it must land
+            // before Boolean1 in the strip despite being created after it.
+            const box1 = new MockNode("Box1");
+            const box2 = new MockNode("Box2");
+            const boolean1 = new MockNode("Boolean1");
+            const fillet1 = new MockNode("Fillet1");
+            // Tree/nextSibling order intentionally does not match the desired
+            // strip order, to prove this isn't just falling back to tree walk.
+            box1.nextSibling = box2;
+            box2.nextSibling = boolean1;
+            boolean1.nextSibling = fillet1;
+            const root = { firstChild: box1, nextSibling: undefined };
+
+            const doc = makeDoc(root);
+            const graph: DependencyGraph = doc.modelManager.dependencyGraph;
+            graph.setDependencies({ id: boolean1.id, recompute: () => {} }, [box1.id, fillet1.id]);
+            graph.setDependencies({ id: fillet1.id, recompute: () => {} }, [box2.id]);
+
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            fixture = { doc, model1: box1, model2: box2, track };
+
+            const items = Array.from(track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([box1, box2, fillet1, boolean1]);
+        });
+
+        test("a node unrelated to any dependency chain still sorts by createdOrder among the rest", () => {
+            const box1 = new MockNode("Box1");
+            const box2 = new MockNode("Box2");
+            const box3 = new MockNode("Box3"); // unrelated - no dependency edges at all
+            const boolean1 = new MockNode("Boolean1");
+            const fillet1 = new MockNode("Fillet1");
+            box1.nextSibling = box2;
+            box2.nextSibling = box3;
+            box3.nextSibling = boolean1;
+            boolean1.nextSibling = fillet1;
+            const root = { firstChild: box1, nextSibling: undefined };
+
+            const doc = makeDoc(root);
+            const graph: DependencyGraph = doc.modelManager.dependencyGraph;
+            graph.setDependencies({ id: boolean1.id, recompute: () => {} }, [box1.id, fillet1.id]);
+            graph.setDependencies({ id: fillet1.id, recompute: () => {} }, [box2.id]);
+
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            fixture = { doc, model1: box1, model2: box2, track };
+
+            const items = Array.from(track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([box1, box2, box3, fillet1, boolean1]);
+        });
+    });
+
     describe("selection", () => {
         test("should add selected style to newly selected nodes and remove from previous", () => {
             fixture = createFixture();
