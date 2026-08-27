@@ -456,6 +456,34 @@ describe("ModelManager", () => {
                 expect(notifyCallCount).toBe(1);
                 expect(sawRootNodeDuringNotify).toBe(destDoc.modelManager.rootNode);
             });
+
+            test("a deserialize that throws partway through still stops batching, instead of blackholing every later notification", async () => {
+                const destDoc = new TestDocument();
+                let notifyCallCount = 0;
+                destDoc.modelManager.addNodeObserver(() => {
+                    notifyCallCount++;
+                });
+
+                // A node referencing a class name that was never @serializable()'d -
+                // Serializer.deserializeInstance throws building it, partway through
+                // the rebuild, with rootNode not yet assigned.
+                const malformed = {
+                    components: [],
+                    nodes: [{ [InternalClassName]: "NotARealRegisteredClass", id: Id.generate() }],
+                    materials: [],
+                };
+
+                await expect(destDoc.modelManager.deserialize(malformed)).rejects.toThrow();
+
+                // The failed deserialize's own attempted notifications (if any) were
+                // dropped, not delivered - that part is fine. What must NOT happen is
+                // every notification from here on being silently swallowed too.
+                notifyCallCount = 0;
+                const node = new MMTestBaseNode({ document: destDoc });
+                destDoc.modelManager.addNode(node);
+
+                expect(notifyCallCount).toBeGreaterThan(0);
+            });
         });
     });
 

@@ -137,15 +137,23 @@ export class ModelManager extends Observable {
         // only once the whole tree (and rootNode) actually exists, so every
         // reference is resolvable by the time anything reads it.
         this.batchedRecords = [];
-        const rootNode = await NodeUtils.deserializeNode(this.document, data.nodes);
-        this.rootNode = rootNode!;
-
-        const records = this.batchedRecords;
-        this.batchedRecords = undefined;
-        if (records.length > 0) {
-            this._nodeChangedObservers.forEach((x) => {
-                x(records);
-            });
+        try {
+            const rootNode = await NodeUtils.deserializeNode(this.document, data.nodes);
+            this.rootNode = rootNode!;
+        } finally {
+            // Unconditionally, even if deserializeNode threw partway through (a
+            // malformed file, say) - notifyNodeChanged treats a defined
+            // batchedRecords as "still batching" and swallows every call rather
+            // than delivering it, so leaving this set on a thrown error would
+            // silently blackhole every future node-changed notification (tree,
+            // timeline, 3D view) for the rest of the session, not just this load.
+            const records = this.batchedRecords;
+            this.batchedRecords = undefined;
+            if (records && records.length > 0) {
+                this._nodeChangedObservers.forEach((x) => {
+                    x(records);
+                });
+            }
         }
     }
 
