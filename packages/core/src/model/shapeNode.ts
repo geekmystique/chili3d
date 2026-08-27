@@ -20,6 +20,7 @@ import {
 import { MeshUtils } from "../shape/meshUtils";
 import type { IGraphNode } from "./dependencyGraph";
 import { GeometryNode } from "./geometryNode";
+import { NodeUtils } from "./node";
 
 const SHAPE_UNDEFINED = "Shape not initialized";
 
@@ -218,7 +219,10 @@ export abstract class ParameterShapeNode extends ShapeNode {
             materialId: options.materialId,
             id: options.id,
         });
-        this.setPrivateValue("name", I18n.translate(this.display()));
+        this.setPrivateValue(
+            "name",
+            NodeUtils.nextNumberedName(options.document, I18n.translate(this.display())),
+        );
     }
 
     protected abstract generateShape(): Result<IShape>;

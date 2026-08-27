@@ -7,6 +7,7 @@ import {
     type I18nKeys,
     type IDocument,
     type IShape,
+    NodeUtils,
     ReferenceShapeNode,
     Result,
     serializable,
@@ -69,9 +70,14 @@ export class EdgeCornerNode extends ReferenceShapeNode {
         this.setPrivateValue("edgeIndexes", options.edgeIndexes);
         this.setPrivateValue("value", options.value);
         // ParameterShapeNode's constructor names the node from display() before
-        // operateType is set above, so it always picks the same branch. Redo it
-        // now that display() can tell fillet and chamfer apart.
-        this.setPrivateValue("name", I18n.translate(this.display()));
+        // operateType is set above, so it always picks the same branch (and,
+        // having scanned the tree before edgeIndexes/operateType existed on
+        // this node, numbered against the wrong display name too). Redo it now
+        // that display() can tell fillet and chamfer apart.
+        this.setPrivateValue(
+            "name",
+            NodeUtils.nextNumberedName(options.document, I18n.translate(this.display())),
+        );
     }
 
     /**

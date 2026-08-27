@@ -44,7 +44,7 @@ describe("EllipseNode", () => {
                 majorRadius: 20,
                 minorRadius: 10,
             });
-            expect(node.name).toBe("body.ellipse");
+            expect(node.name).toBe("body.ellipse 1");
         });
 
         test("isFace should default to false", () => {

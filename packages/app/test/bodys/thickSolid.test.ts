@@ -55,7 +55,7 @@ describe("ThickSolidNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(5).name).toBe("body.thickSolid");
+            expect(makeNode(5).name).toBe("body.thickSolid 1");
         });
     });
 

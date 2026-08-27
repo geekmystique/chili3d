@@ -56,7 +56,7 @@ describe("ExtrudeNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(10).name).toBe("body.extrude");
+            expect(makeNode(10).name).toBe("body.extrude 1");
         });
     });
 

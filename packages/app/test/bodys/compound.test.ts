@@ -47,7 +47,7 @@ describe("CompoundNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(createMockShape()).name).toBe("body.compound");
+            expect(makeNode(createMockShape()).name).toBe("body.compound 1");
         });
     });
 

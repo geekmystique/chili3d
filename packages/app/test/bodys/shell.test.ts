@@ -58,7 +58,7 @@ describe("ShellNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(mockFace()).name).toBe("body.shell");
+            expect(makeNode(mockFace()).name).toBe("body.shell 1");
         });
     });
 

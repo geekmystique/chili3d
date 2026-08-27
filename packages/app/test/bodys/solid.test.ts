@@ -69,7 +69,7 @@ describe("SolidNode", () => {
         });
 
         test("should set name from display()", () => {
-            expect(makeNode(mockShell()).name).toBe("body.solid");
+            expect(makeNode(mockShell()).name).toBe("body.solid 1");
         });
     });
 

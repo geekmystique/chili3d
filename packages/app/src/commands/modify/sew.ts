@@ -6,6 +6,7 @@ import {
     EditableShapeNode,
     type IStep,
     MultistepCommand,
+    NodeUtils,
     PubSub,
     SelectShapeStep,
     ShapeNode,
@@ -33,7 +34,7 @@ export class Sew extends MultistepCommand {
 
             const node = new EditableShapeNode({
                 document: this.document,
-                name: "sewed",
+                name: NodeUtils.nextNumberedName(this.document, "sewed"),
                 shape: repaired,
             });
             this.document.modelManager.rootNode.add(node);
