@@ -74,11 +74,12 @@ describe("ExtrudeEditCommand", () => {
             }
         });
 
-        test("should find the target ExtrudeNode", async () => {
+        test("should find the target ExtrudeNode and pick up its current length", async () => {
             const { cmd, targetNode } = buildEditCommand();
             const result = await (cmd as any).canExcute();
             expect(result).toBe(true);
             expect((cmd as any).targetNode).toBe(targetNode);
+            expect((cmd as any).length).toBe(targetNode.length);
         });
     });
 
@@ -114,6 +115,18 @@ describe("ExtrudeEditCommand", () => {
             (cmd as any).executeMainTask();
 
             expect(targetNode.sectionNodeId).toBe(sectionNode.id);
+            expect(targetNode.shape.isOk).toBe(true);
+        });
+
+        test("should apply a newly typed length even when the section wasn't re-picked", () => {
+            const { cmd, targetNode } = buildEditCommand();
+            (cmd as any).targetNode = targetNode;
+            (cmd as any).length = 42;
+            seedStepDatas(cmd, [shapeStepResult([])]);
+
+            (cmd as any).executeMainTask();
+
+            expect(targetNode.length).toBe(42);
             expect(targetNode.shape.isOk).toBe(true);
         });
 

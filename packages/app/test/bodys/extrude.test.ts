@@ -373,11 +373,25 @@ describe("ExtrudeNode", () => {
             expect(node.shape.isOk).toBe(true);
             expect(prism).toHaveBeenCalledTimes(1);
 
-            node.updateSection(newBase.id, undefined, undefined);
+            node.updateSection(newBase.id, undefined, undefined, 10);
 
             expect(node.sectionNodeId).toBe(newBase.id);
             expect(node.sectionShapeType).toBeUndefined();
             expect(node.sectionIndex).toBeUndefined();
+            expect(node.length).toBe(10);
+            expect(prism).toHaveBeenCalledTimes(2);
+        });
+
+        test("should also update length and recompute once for both changes together", () => {
+            const prism = rs.fn(() => Result.ok(createMockShape() as any));
+            setupShapeFactoryMock({ prism });
+            const node = makeNode(10);
+            expect(node.shape.isOk).toBe(true);
+            expect(prism).toHaveBeenCalledTimes(1);
+
+            node.updateSection(baseNode.id, undefined, undefined, 25);
+
+            expect(node.length).toBe(25);
             expect(prism).toHaveBeenCalledTimes(2);
         });
     });
