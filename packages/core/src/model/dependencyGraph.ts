@@ -27,6 +27,8 @@ export class DependencyGraph {
     private readonly _dependents = new Map<string, Set<string>>();
     private readonly _nodes = new Map<string, IGraphNode>();
     private _activePass = false;
+    private _suspendDepth = 0;
+    private readonly _pendingIds = new Set<string>();
 
     /** Replace `node`'s full set of dependencies with `dependsOnIds`. */
     setDependencies(node: IGraphNode, dependsOnIds: string[]) {
@@ -68,11 +70,51 @@ export class DependencyGraph {
      * running pass already scheduled) are no-ops: anything downstream of a
      * node already inside the current affected set is, transitively, also
      * inside it.
+     *
+     * While a suspend() batch is open, the call is deferred instead: `id` is
+     * recorded and propagation runs once, for every deferred id together,
+     * when the outermost suspend() ends.
      */
     propagate(changedId: string) {
         if (this._activePass) return;
+        if (this._suspendDepth > 0) {
+            this._pendingIds.add(changedId);
+            return;
+        }
 
-        const affected = this.collectDownstream(changedId);
+        this.propagateMany([changedId]);
+    }
+
+    /**
+     * Run `fn`, deferring every propagate() call made while it runs (directly,
+     * or through nested suspend() calls) into a single combined pass once it
+     * returns. Callers that redirect several sibling dependents in a loop -
+     * spliceIntoReferenceChain, removeFromReferenceChain - use this so a
+     * shared downstream node (a diamond: two redirected siblings reconverging
+     * further down) is recomputed once, against every sibling's already-
+     * updated input, instead of once per sibling against a still-stale one.
+     */
+    suspend<T>(fn: () => T): T {
+        this._suspendDepth++;
+        try {
+            return fn();
+        } finally {
+            this._suspendDepth--;
+            if (this._suspendDepth === 0 && this._pendingIds.size > 0) {
+                const ids = [...this._pendingIds];
+                this._pendingIds.clear();
+                this.propagateMany(ids);
+            }
+        }
+    }
+
+    private propagateMany(changedIds: string[]) {
+        const affected = new Set<string>();
+        changedIds.forEach((id) => {
+            this.collectDownstream(id).forEach((relatedId) => {
+                affected.add(relatedId);
+            });
+        });
         if (affected.size === 0) return;
 
         const order = this.topologicalOrder(affected);

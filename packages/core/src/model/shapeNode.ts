@@ -273,6 +273,18 @@ export abstract class ReferenceShapeNode extends ParameterShapeNode implements I
     }
 
     protected resolveInput(id: string): ShapeNode | undefined {
+        // Refuse a reference to this node itself, or to anything already
+        // downstream of it (a node that - directly or transitively - depends
+        // on this one). Either would create a cycle: a re-pick edit command
+        // (e.g. BooleanEdit) doesn't otherwise stop a user from selecting the
+        // very node being edited, or one of its own dependents, as a new
+        // input, which would silently corrupt this node's shape (computed
+        // against its own stale output) and the dependency graph (a self/
+        // circular edge) with no error surfaced.
+        if (id === this.id) return undefined;
+        const graph = this.document.modelManager.dependencyGraph;
+        if (graph?.getAllDependents(this.id).has(id)) return undefined;
+
         const node = this.document.modelManager.findNode((n) => n.id === id);
         return node instanceof ShapeNode ? node : undefined;
     }
@@ -317,12 +329,22 @@ export function spliceIntoReferenceChain(
     if (!graph) return false;
 
     let spliced = false;
-    graph.getDirectDependents(oldNode.id).forEach((id) => {
-        if (id === newNode.id) return;
-        const dependent = document.modelManager.findNode((n) => n.id === id);
-        if (dependent instanceof ReferenceShapeNode && dependent.redirectReference(oldNode.id, newNode.id)) {
-            spliced = true;
-        }
+    // Batched: a direct dependent's own redirectReference() recomputes its
+    // shape immediately, but the resulting downstream propagate() is deferred
+    // until every dependent here has redirected, so a shared downstream node
+    // (two redirected dependents reconverging further down) recomputes once,
+    // against all of them already updated, instead of once per dependent.
+    graph.suspend(() => {
+        graph.getDirectDependents(oldNode.id).forEach((id) => {
+            if (id === newNode.id) return;
+            const dependent = document.modelManager.findNode((n) => n.id === id);
+            if (
+                dependent instanceof ReferenceShapeNode &&
+                dependent.redirectReference(oldNode.id, newNode.id)
+            ) {
+                spliced = true;
+            }
+        });
     });
 
     if (spliced) newNode.visible = false;
@@ -352,10 +374,20 @@ export function removeFromReferenceChain(document: IDocument, node: ReferenceSha
 
     if (dependentIds.length > 0 && primaryId === undefined) return false;
 
-    dependentIds.forEach((id) => {
-        const dependent = document.modelManager.findNode((n) => n.id === id);
-        if (dependent instanceof ReferenceShapeNode) dependent.redirectReference(node.id, primaryId!);
-    });
+    // See spliceIntoReferenceChain for why this is batched: without it, a
+    // downstream node shared by two redirected dependents recomputes once per
+    // dependent, the first time against a still-stale sibling.
+    const redirectAll = () => {
+        dependentIds.forEach((id) => {
+            const dependent = document.modelManager.findNode((n) => n.id === id);
+            if (dependent instanceof ReferenceShapeNode) dependent.redirectReference(node.id, primaryId!);
+        });
+    };
+    if (graph) {
+        graph.suspend(redirectAll);
+    } else {
+        redirectAll();
+    }
 
     const upstreamIds = graph ? [...graph.getDirectDependencies(node.id)] : [];
     node.parent?.remove(node);
