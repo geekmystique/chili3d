@@ -43,9 +43,23 @@ export class Section extends MultistepCommand {
             }
 
             this.document.modelManager.rootNode.add(node);
+            this.repositionAfterShape(node);
             this.document.visual.update();
             PubSub.default.pub("showToast", "toast.success");
         });
+    }
+
+    /**
+     * The new Section was appended to the tree root - move it to sit right
+     * after its shape node (SectionNode's primaryInputId) instead, so it
+     * lands at its logical spot in the tree/timeline rather than always at
+     * the end, matching Extrude/Revolve/Sweep.
+     */
+    private repositionAfterShape(node: SectionNode): void {
+        if (!node.parent) return;
+        const shape = this.document.modelManager.findNode((n) => n.id === node.shapeNodeId);
+        if (!shape?.parent) return;
+        node.parent.move(node, shape.parent, shape);
     }
 
     protected override getSteps(): IStep[] {

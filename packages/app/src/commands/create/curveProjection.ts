@@ -21,6 +21,8 @@ import { CreateCommand } from "../createCommand";
     icon: "icon-curveProject",
 })
 export class CurveProjectionCommand extends CreateCommand {
+    private createdNode?: CurveProjectionNode;
+
     @property("common.dir")
     get dir() {
         return this.getPrivateValue("dir", "0,0,-1");
@@ -45,7 +47,7 @@ export class CurveProjectionCommand extends CreateCommand {
         const shapeRef = sweepRefFromPick(shapePick.owner.node as ShapeNode, shapePick.shape);
         const faceRef = sweepRefFromPick(facePick.owner.node as ShapeNode, facePick.shape);
 
-        return new CurveProjectionNode({
+        const node = new CurveProjectionNode({
             document: this.document,
             shapeNodeId: shapeRef.nodeId,
             shapeShapeType: shapeRef.shapeType,
@@ -55,6 +57,23 @@ export class CurveProjectionCommand extends CreateCommand {
             faceIndex: faceRef.index,
             dir: this.dir,
         });
+        this.createdNode = node;
+        return node;
+    }
+
+    /**
+     * The new CurveProjection was appended to the tree by the shared
+     * CreateCommand flow before afterNodeCreated ran. Move it to sit right
+     * after its shape node (CurveProjectionNode's primaryInputId) instead, so
+     * it lands at its logical spot in the tree/timeline rather than always at
+     * the end, matching Extrude/Revolve/Sweep.
+     */
+    protected override afterNodeCreated(): void {
+        const createdNode = this.createdNode;
+        if (!createdNode?.parent) return;
+        const shape = this.document.modelManager.findNode((n) => n.id === createdNode.shapeNodeId);
+        if (!shape?.parent) return;
+        createdNode.parent.move(createdNode, shape.parent, shape);
     }
 
     protected override getSteps(): IStep[] {

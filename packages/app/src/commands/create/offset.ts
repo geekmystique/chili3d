@@ -69,7 +69,20 @@ export class OffsetCommand extends MultistepCommand {
         }
 
         this.document.modelManager.rootNode.add(node);
+        this.repositionAfterSection(node);
         this.document.visual.update();
+    }
+
+    /**
+     * The new Offset was appended to the tree root - move it to sit right
+     * after its section node instead, so it lands at its logical spot in the
+     * tree/timeline rather than always at the end, matching Extrude/Revolve.
+     */
+    private repositionAfterSection(node: OffsetNode): void {
+        if (!node.parent) return;
+        const section = this.document.modelManager.findNode((n) => n.id === node.sectionNodeId);
+        if (!section?.parent) return;
+        node.parent.move(node, section.parent, section);
     }
 
     protected override getSteps(): IStep[] {

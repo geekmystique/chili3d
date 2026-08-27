@@ -131,6 +131,7 @@ export class LoftCommand extends CancelableCommand {
                 }
 
                 this.document.modelManager.addNode(node);
+                this.repositionAfterFirstSection(node);
 
                 if (this.deleteObjects) {
                     selectedWholeShapeNodes(this.selectedDatas).forEach((source) => {
@@ -142,6 +143,19 @@ export class LoftCommand extends CancelableCommand {
         } finally {
             this.clearVisual();
         }
+    }
+
+    /**
+     * The new Loft was appended to the tree by modelManager.addNode - move it
+     * to sit right after its first section node (LoftNode's primaryInputId)
+     * instead, so it lands at its logical spot in the tree/timeline rather
+     * than always at the end, matching Extrude/Revolve/Sweep.
+     */
+    private repositionAfterFirstSection(node: LoftNode): void {
+        if (!node.parent) return;
+        const section = this.document.modelManager.findNode((n) => n.id === node.sectionNodeIds[0]);
+        if (!section?.parent) return;
+        node.parent.move(node, section.parent, section);
     }
 
     private async selectSection() {
