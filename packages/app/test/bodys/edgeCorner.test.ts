@@ -1,11 +1,28 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { EditableShapeNode, type IDocument, type INode, Result, Serializer } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type INode,
+    type IShape,
+    Result,
+    Serializer,
+} from "@chili3d/core";
 import { createMockDocument } from "@chili3d/core/test-utils";
 import { beforeEach, describe, expect, test } from "@rstest/core";
 import { EdgeCornerNode } from "../../src/bodys/edgeCorner";
 import { createMockShape, setupShapeFactoryMock } from "./_utils";
+
+/**
+ * Patch a mock shape so transformedMul (called by EdgeCornerNode.generateShape()
+ * on the resolved base shape) returns itself instead of MockShape's default
+ * fresh, override-less instance - preserving identity for assertions.
+ */
+function selfTransforming<T extends IShape>(shape: T): T {
+    (shape as unknown as { transformedMul: () => T }).transformedMul = () => shape;
+    return shape;
+}
 
 describe("EdgeCornerNode", () => {
     let doc: IDocument;
@@ -17,7 +34,11 @@ describe("EdgeCornerNode", () => {
         doc = createMockDocument({
             modelManager: { findNode: (predicate: (n: INode) => boolean) => nodes.find(predicate) } as any,
         });
-        baseNode = new EditableShapeNode({ document: doc, name: "base", shape: createMockShape() });
+        baseNode = new EditableShapeNode({
+            document: doc,
+            name: "base",
+            shape: selfTransforming(createMockShape()),
+        });
         nodes.push(baseNode);
     });
 

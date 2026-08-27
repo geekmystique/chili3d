@@ -403,8 +403,10 @@ describe("FilletCommand", () => {
 
             (cmd as any).executeMainTask();
 
-            // shapeFactory.fillet(node.shape.value, edges, radius) was called directly - no transform.
-            expect(shape.calls.get("transformedMul")).toBeUndefined();
+            // shapeFactory.fillet is called against the base's transformed shape,
+            // not the raw untransformed one (EdgeCornerNode.generateShape applies
+            // solidNode.transform first, matching every other reference node).
+            expect(shape.calls.get("transformedMul")).toEqual([[solidNode.transform]]);
             // inserted right after solidNode, not appended, so it lands at its
             // logical spot in the tree/timeline.
             expect(parent.insertedAfter).toHaveLength(1);

@@ -106,8 +106,13 @@ export class EdgeCornerNode extends ReferenceShapeNode {
 
         this.subscribeTo([base]);
 
-        return this.operateType === "fillet"
-            ? shapeFactory.fillet(base.shape.value, this.edgeIndexes, this.value)
-            : shapeFactory.chamfer(base.shape.value, this.edgeIndexes, this.value);
+        const shape = base.shape.value.transformedMul(base.transform);
+        try {
+            return this.operateType === "fillet"
+                ? shapeFactory.fillet(shape, this.edgeIndexes, this.value)
+                : shapeFactory.chamfer(shape, this.edgeIndexes, this.value);
+        } finally {
+            shape.dispose();
+        }
     }
 }
