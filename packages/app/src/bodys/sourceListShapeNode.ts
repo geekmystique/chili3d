@@ -81,6 +81,10 @@ export abstract class SourceListShapeNode extends ReferenceShapeNode {
         this.subscribeTo(bases);
 
         const shapes = bases.map((base) => base.shape.value.transformedMul(base.transform));
-        return this.combineShapes(shapes);
+        try {
+            return this.combineShapes(shapes);
+        } finally {
+            shapes.forEach((s) => s.dispose());
+        }
     }
 }
