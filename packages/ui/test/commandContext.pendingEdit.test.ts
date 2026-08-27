@@ -84,6 +84,41 @@ describe("CommandContext - pending edit commit on confirm", () => {
         expect(controller.success).toHaveBeenCalledTimes(1);
     });
 
+    test("pressing Enter in a number field should commit the value and confirm in one press", () => {
+        const command = new SizeCommand();
+        ctx = new CommandContext(command);
+        document.body.appendChild(ctx);
+
+        const controller = { success: rs.fn(() => {}), cancel: rs.fn(() => {}) };
+        PubSub.default.pub("showSelectionControl", controller as unknown as AsyncController);
+
+        const input = mustQuery<HTMLInputElement>(ctx, "input[type='text']");
+        input.focus();
+        input.value = "25";
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+        expect(command.size).toBe(25);
+        expect(controller.success).toHaveBeenCalledTimes(1);
+    });
+
+    test("Enter in a number field should not confirm anything once the selection control is gone", () => {
+        const command = new SizeCommand();
+        ctx = new CommandContext(command);
+        document.body.appendChild(ctx);
+
+        const controller = { success: rs.fn(() => {}), cancel: rs.fn(() => {}) };
+        PubSub.default.pub("showSelectionControl", controller as unknown as AsyncController);
+        PubSub.default.pub("clearSelectionControl");
+
+        const input = mustQuery<HTMLInputElement>(ctx, "input[type='text']");
+        input.focus();
+        input.value = "25";
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+        expect(command.size).toBe(25);
+        expect(controller.success).not.toHaveBeenCalled();
+    });
+
     test("should not disturb focus that isn't inside this panel", () => {
         const command = new SizeCommand();
         ctx = new CommandContext(command);
