@@ -47,6 +47,7 @@ export class TimelineTrack extends HTMLElement {
         this.document.modelManager.addNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.sub(this.handleSelectionChanged);
         PubSub.default.sub("closeCommandContext", this.restorePreview);
+        PubSub.default.sub("closeCommandContext", this.reorderByCreatedOrder);
         this.addEventListener("click", this.onClick);
         this.addEventListener("dblclick", this.onDoubleClick);
         this.addEventListener("contextmenu", this.onContextMenu);
@@ -56,6 +57,7 @@ export class TimelineTrack extends HTMLElement {
         this.document.modelManager.removeNodeObserver(this.handleNodeChanged);
         this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
         PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
         this.removeEventListener("click", this.onClick);
         this.removeEventListener("dblclick", this.onDoubleClick);
         this.removeEventListener("contextmenu", this.onContextMenu);
@@ -64,6 +66,7 @@ export class TimelineTrack extends HTMLElement {
     dispose(): void {
         this.restorePreview();
         PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
         this.contextMenu.dispose();
         this.nodeMap.forEach((item) => {
             item.dispose();
@@ -181,17 +184,27 @@ export class TimelineTrack extends HTMLElement {
 
     /**
      * DOM append() moves an already-attached element rather than duplicating
-     * it, so walking every known item in createdOrder and re-appending it is
-     * an O(n log n) way to keep the strip's visual order in sync - needed
-     * because a new node can be created anywhere in the tree, not just at
-     * the end, and the tree itself can be reorganized independently.
+     * it, so walking every known item in dependency/created order and
+     * re-appending it is an O(n log n) way to keep the strip's visual order
+     * in sync - needed because a new node can be created anywhere in the
+     * tree, not just at the end, and the tree itself can be reorganized
+     * independently.
+     *
+     * Also subscribed directly to closeCommandContext (every command's own
+     * lifecycle fires this once it finishes, success or not): a retroactive
+     * splice - fillet a boolean's already-consumed source, say - redirects a
+     * dependency via redirectReference, which changes what order() should
+     * produce, but isn't itself a tree add/remove/move, so handleNodeChanged
+     * below never sees it. Structural changes still reorder immediately (for
+     * live feedback as nodes are added); this is the catch-all that keeps the
+     * strip correct once the whole operation - splice included - has settled.
      */
-    private reorderByCreatedOrder(): void {
+    private readonly reorderByCreatedOrder = (): void => {
         this.collectExisting(this.document.modelManager.rootNode).forEach((node) => {
             const item = this.nodeMap.get(node);
             if (item) this.append(item);
         });
-    }
+    };
 
     private readonly handleSelectionChanged = (selected: INode[]) => {
         const related = this.collectRelatedIds(selected);

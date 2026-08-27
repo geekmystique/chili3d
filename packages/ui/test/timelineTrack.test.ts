@@ -359,6 +359,57 @@ describe("TimelineTrack", () => {
             const items = Array.from(track.children) as unknown as { node: unknown }[];
             expect(items.map((i) => i.node)).toEqual([box1, box2, box3, fillet1, boolean1]);
         });
+
+        test("re-sorts on closeCommandContext, correcting a stale order left by the splice's own premature structural notification", () => {
+            // Reproduces the exact sequence a real fillet-on-an-already-consumed-
+            // node command goes through: EdgeCornerCommand.modifyBodyNode() calls
+            // container.insertAfter(node, featureNode) - a structural "add" that
+            // fires *before* spliceIntoReferenceChain has redirected the boolean's
+            // dependency - so the reorder triggered by that add() sees Boolean1
+            // still depending on Box1 directly (not yet Fillet1) and places it
+            // before Fillet1. Only once the splice finishes and the command's own
+            // afterExecute() fires closeCommandContext should the strip correct
+            // itself to the final, fully-settled dependency graph.
+            const box1 = new MockNode("Box1");
+            const box2 = new MockNode("Box2");
+            const boolean1 = new MockNode("Boolean1");
+            box1.nextSibling = box2;
+            box2.nextSibling = boolean1;
+            const root = { firstChild: box1, nextSibling: undefined };
+
+            const doc = makeDoc(root);
+            const graph: DependencyGraph = doc.modelManager.dependencyGraph;
+            graph.setDependencies({ id: boolean1.id, recompute: () => {} }, [box1.id, box2.id]);
+
+            const track = new TimelineTrack(doc);
+            document.body.appendChild(track);
+            fixture = { doc, model1: box1, model2: box2, track };
+
+            // 1. Fillet1 is created and linked into the tree right after Box1 -
+            // this alone fires a structural "add" notification.
+            const fillet1 = new MockNode("Fillet1");
+            box1.nextSibling = fillet1;
+            fillet1.nextSibling = box2;
+            graph.setDependencies({ id: fillet1.id, recompute: () => {} }, [box1.id]);
+            doc.emitNodeChanged([{ node: fillet1, newParent: box1 } as unknown as NodeRecord]);
+
+            // At this exact point, Boolean1 doesn't depend on Fillet1 yet - the
+            // premature reorder the add() above triggered placed Boolean1 (lower
+            // createdOrder) before Fillet1 (higher createdOrder).
+            let items = Array.from(track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([box1, box2, boolean1, fillet1]);
+
+            // 2. spliceIntoReferenceChain redirects Boolean1 to depend on Fillet1
+            // instead of Box1 - a pure dependency-graph change, not a tree
+            // add/remove/move, so handleNodeChanged never sees it.
+            graph.setDependencies({ id: boolean1.id, recompute: () => {} }, [fillet1.id, box2.id]);
+
+            // 3. The command finishes; afterExecute() fires closeCommandContext.
+            firePubSub("closeCommandContext");
+
+            items = Array.from(track.children) as unknown as { node: unknown }[];
+            expect(items.map((i) => i.node)).toEqual([box1, box2, fillet1, boolean1]);
+        });
     });
 
     describe("selection", () => {
