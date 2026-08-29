@@ -676,7 +676,7 @@ describe("FilletCommand", () => {
         });
     });
 
-    describe("radius drag (getRadiusStepData)", () => {
+    describe("radius drag (getCornerValueStepData)", () => {
         /** A shape carrying enough of edgesMeshPosition for `meshShape`'s preview path to not crash. */
         function meshableShape(overrides: Partial<IShape> = {}) {
             return mockShape({
@@ -723,7 +723,7 @@ describe("FilletCommand", () => {
 
             seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
 
-            const data = (cmd as any).getRadiusStepData();
+            const data = (cmd as any).getCornerValueStepData();
             expect(data.point.x).toBeCloseTo(5);
             expect(data.point.y).toBeCloseTo(0);
             // normal (unitZ) x tangent (unitX) = unitY
@@ -747,7 +747,7 @@ describe("FilletCommand", () => {
             } as Partial<IShape>);
 
             seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
-            const data = (cmd as any).getRadiusStepData();
+            const data = (cmd as any).getCornerValueStepData();
 
             const { calls, restore } = captureFactory({ fillet: () => Result.ok(meshableShape()) });
             try {
@@ -777,7 +777,7 @@ describe("FilletCommand", () => {
                 parent: body,
             } as Partial<IShape>);
 
-            const data = (cmd as any).getRadiusStepData();
+            const data = (cmd as any).getCornerValueStepData();
             expect(data.point.x).toBeCloseTo(0);
             expect(data.point.y).toBeCloseTo(0);
 
@@ -806,7 +806,7 @@ describe("FilletCommand", () => {
                 parent: sharedParent,
             } as Partial<IShape>);
 
-            const data = (cmd as any).getRadiusStepData();
+            const data = (cmd as any).getCornerValueStepData();
 
             const { calls, restore } = captureFactory({
                 filletEdge2d: () => Result.ok([meshableShape(), meshableShape(), meshableShape()]),

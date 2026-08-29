@@ -10,8 +10,10 @@ import {
     Result,
     type ShapeType,
     ShapeTypes,
+    SnapEventHandler,
+    XYZ,
 } from "@chili3d/core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, rs, test } from "@rstest/core";
 import { ChamferCommand } from "../../../src/commands/modify/chamfer";
 import {
     ensureGlobalStubApp,
@@ -33,6 +35,7 @@ afterAll(() => restoreApp());
 function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType; liveNode?: boolean } = {}) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
@@ -155,6 +158,7 @@ function buildWireCommand(opts: { swap?: boolean } = {}) {
 function buildStandaloneEdgesCommand(count: 1 | 2 = 2) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const body = mockShape({ shapeType: ShapeTypes.edge });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
@@ -212,14 +216,16 @@ describe("ChamferCommand", () => {
 
     test("length setter should update property", () => {
         const cmd = new ChamferCommand();
+        const { doc } = wireCommand(cmd);
+        (doc as any).application = { activeView: {} };
         cmd.length = 20;
         expect(cmd.length).toBe(20);
     });
 
-    test("getSteps should return a single edge-selection step", () => {
+    test("getSteps should return the edge-selection step followed by a distance-drag step", () => {
         const cmd = new ChamferCommand();
         const steps = (cmd as any).getSteps();
-        expect(steps.length).toBe(1);
+        expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
         expect(steps[0].options.multiple).toBe(true);
     });
@@ -618,6 +624,108 @@ describe("ChamferCommand", () => {
             } finally {
                 restore();
             }
+        });
+    });
+
+    describe("distance drag (getCornerValueStepData)", () => {
+        /** A shape carrying enough of edgesMeshPosition for `meshShape`'s preview path to not crash. */
+        function meshableShape(overrides: Partial<IShape> = {}) {
+            return mockShape({
+                edgesMeshPosition: () => ({ type: "edges", positions: [] }),
+                ...overrides,
+            } as any);
+        }
+
+        /** A straight edge from `start` to `end`, with real ends/curve/findAncestor so axis geometry can be computed. */
+        function straightEdgeShape(start: XYZ, end: XYZ, overrides: Partial<IShape> = {}) {
+            const dir = end.sub(start);
+            return mockShape({
+                shapeType: ShapeTypes.edge,
+                firstParameter: () => 0,
+                lastParameter: () => 1,
+                ends: () => [start, end] as [XYZ, XYZ],
+                curve: {
+                    value: (u: number) => start.add(dir.multiply(u)),
+                    d1: (u: number) => ({ point: start.add(dir.multiply(u)), vec: dir }),
+                },
+                findAncestor: () => [],
+                ...overrides,
+            } as any);
+        }
+
+        test("solid edge: dragging along the axis previews shapeFactory.chamfer and updates length", () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 2,
+                parent: body,
+            } as Partial<IShape>);
+
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+            const data = (cmd as any).getCornerValueStepData();
+
+            const { calls, restore } = captureFactory({ chamfer: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(7));
+                const preview = data.preview(dragged);
+
+                expect(cmd.length).toBeCloseTo(7);
+                expect(calls["chamfer"]).toHaveLength(1);
+                expect(calls["chamfer"][0][1]).toEqual([2]);
+                expect(calls["chamfer"][0][2]).toBeCloseTo(7);
+                expect(preview).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("face corner: previews chamfer2d", () => {
+            const { cmd, body } = buildChamferCommand([0, 1], { bodyType: ShapeTypes.face });
+            const sel0 = (cmd as any).stepDatas[0].shapes[0];
+            const sel1 = (cmd as any).stepDatas[0].shapes[1];
+            sel0.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 1, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            sel1.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 0, y: 1, z: 0 }), {
+                index: 1,
+                parent: body,
+            } as Partial<IShape>);
+
+            const data = (cmd as any).getCornerValueStepData();
+
+            const { calls, restore } = captureFactory({ chamfer2d: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(2));
+                data.preview(dragged);
+
+                expect(cmd.length).toBeCloseTo(2);
+                expect(calls["chamfer2d"]).toHaveLength(1);
+                expect(calls["chamfer2d"][0][0]).toBe(body);
+            } finally {
+                restore();
+            }
+        });
+
+        test("typing a new value should apply it through the active SnapEventHandler", () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            cmd.length = 15;
+
+            expect(cmd.length).toBe(15);
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
         });
     });
 });
