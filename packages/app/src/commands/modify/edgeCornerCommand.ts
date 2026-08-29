@@ -372,10 +372,28 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
                 multiple: true,
                 shapeFilter: this._edgeFilter,
                 canFinish: this._canFinish,
+                afterSelection: this.queueValueOnExplicitConfirm,
             }),
             new LengthAtAxisStep(this.cornerValuePromptKey, this.getCornerValueStepData, true),
         ];
     }
+
+    /**
+     * Ctrl (either keydown or +click) finishes the edge pick without marking
+     * it "confirm" - specifically so it can drop into the radius/length-drag
+     * step for real interactive dragging. Enter and the checkmark button both
+     * mark it "confirm" instead: an explicit "I'm done, apply it" gesture, so
+     * that one press finishes the whole command with the current/default
+     * cornerValue, the same as if it had been typed - no separate drag-step
+     * confirmation needed. This runs once the (already-resolved) edge-select
+     * step's own controller is still this.controller - the next step hasn't
+     * reassigned it yet.
+     */
+    private readonly queueValueOnExplicitConfirm = (): void => {
+        if (this.controller?.result?.message === "confirm") {
+            this.pendingTypedValue = String(this.cornerValue);
+        }
+    };
 
     /** A 2D operation needs exactly two edges - finish the pick once both are selected. */
     protected readonly _canFinish = (selected: VisualShapeData[]) => {

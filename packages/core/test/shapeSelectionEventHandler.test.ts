@@ -535,6 +535,9 @@ describe("SubshapeSelectionHandler", () => {
             handler.pointerUp(view, createPointerEvent({ pointerId: 1, ctrlKey: true }));
 
             expect(successCalled).toBe(true);
+            // Not "confirm" - Ctrl+click, like Ctrl-hold, means "let me keep
+            // interacting" (dragging), unlike Enter/checkmark.
+            expect(controller.result?.message).toBeUndefined();
         });
 
         test("should not complete on Ctrl+click when nothing was actually selected", () => {
@@ -659,6 +662,9 @@ describe("SubshapeSelectionHandler", () => {
             } as KeyboardEvent);
 
             expect(completed).toBe(true);
+            // "confirm" marks Enter as an explicit accept, as opposed to Ctrl
+            // finishing a pick to continue into a further interactive step.
+            expect(controller.result?.message).toBe("confirm");
         });
 
         test("should complete on Control keydown in multi mode once something is already selected", () => {
@@ -677,6 +683,9 @@ describe("SubshapeSelectionHandler", () => {
             handler.keyDown(view, { key: "Control" } as KeyboardEvent);
 
             expect(completed).toBe(true);
+            // Not "confirm" - Ctrl means "let me keep interacting" (dragging),
+            // unlike Enter/checkmark which mean "I'm done, apply it now".
+            expect(controller.result?.message).toBeUndefined();
         });
 
         test("should not complete on Control keydown when nothing is selected yet", () => {

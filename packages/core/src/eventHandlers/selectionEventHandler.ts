@@ -157,11 +157,16 @@ export abstract class SelectionHandler implements IEventHandler {
                 event.stopImmediatePropagation();
             }
             this.cleanHighlights();
-            this.controller?.success(); // accept selection
+            // "confirm" marks this as an explicit accept (like the checkmark
+            // button) - as opposed to e.g. Ctrl finishing a multi-pick to
+            // continue into a further interactive step, which isn't.
+            this.controller?.success("confirm");
         } else if (event.key === "Control" && this.multiMode && this.hasAnySelection()) {
             // Finish a multi-pick the moment Ctrl goes down, without needing a
             // further click - e.g. a solid fillet's edges are already picked,
-            // and holding Ctrl drops straight into the radius-drag step.
+            // and holding Ctrl drops straight into the radius-drag step. Not
+            // "confirm": Ctrl means "let me keep interacting" (dragging),
+            // unlike Enter/checkmark which mean "I'm done, apply it now".
             this.cleanHighlights();
             this.controller?.success();
         } else if (event.key === "Tab") {

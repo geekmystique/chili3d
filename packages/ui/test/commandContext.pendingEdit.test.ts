@@ -99,6 +99,9 @@ describe("CommandContext - pending edit commit on confirm", () => {
 
         expect(command.size).toBe(25);
         expect(controller.success).toHaveBeenCalledTimes(1);
+        // "confirm" marks Enter as an explicit accept, as opposed to e.g.
+        // Ctrl finishing a pick to continue into a further interactive step.
+        expect(controller.success).toHaveBeenCalledWith("confirm");
     });
 
     test("Enter in a number field should not confirm anything once the selection control is gone", () => {

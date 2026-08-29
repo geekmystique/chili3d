@@ -104,7 +104,7 @@ export class CommandContext extends HTMLElement implements IDisposable {
                     className: style.selectionButton,
                     onclick: () => {
                         this.commitPendingEdit();
-                        controller.success();
+                        controller.success("confirm");
                     },
                 },
                 svg({ icon: "icon-confirm" }),
@@ -313,8 +313,10 @@ export class CommandContext extends HTMLElement implements IDisposable {
                         // Confirm it directly - the same action the checkmark button
                         // performs - so typing a value and pressing Enter completes in
                         // one press instead of needing a second Enter after blur moves
-                        // focus off the input.
-                        this.activeController?.success();
+                        // focus off the input. "confirm" marks this as an explicit
+                        // accept (like the checkmark), as opposed to e.g. Ctrl finishing
+                        // a pick to continue into a further interactive step.
+                        this.activeController?.success("confirm");
                     }
                 },
             }),

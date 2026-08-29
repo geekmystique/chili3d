@@ -235,6 +235,27 @@ describe("FilletCommand", () => {
         expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
         expect(steps[0].options.multiple).toBe(true);
+        expect(typeof steps[0].options.afterSelection).toBe("function");
+    });
+
+    describe("queueValueOnExplicitConfirm", () => {
+        test('should queue the current radius when the edge pick finished via Enter/checkmark ("confirm")', () => {
+            const cmd = new FilletCommand();
+            (cmd as any).controller = { result: { status: "success", message: "confirm" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBe(String(cmd.radius));
+        });
+
+        test("should not queue anything when the edge pick finished via Ctrl (no drag skip)", () => {
+            const cmd = new FilletCommand();
+            (cmd as any).controller = { result: { status: "success" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBeUndefined();
+        });
     });
 
     describe("edgeFilter", () => {
