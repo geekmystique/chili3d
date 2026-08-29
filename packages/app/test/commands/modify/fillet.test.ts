@@ -883,5 +883,38 @@ describe("FilletCommand", () => {
 
             expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
         });
+
+        test("pressing Enter without changing the suggested default still finishes the command once the drag step starts", async () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet. Radius is
+            // already 10 (the default), so this is a same-value "no-op" write -
+            // it must still queue, not silently do nothing.
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            const suggestedDefault = cmd.radius;
+            cmd.radius = suggestedDefault;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("10"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "10");
+        });
     });
 });

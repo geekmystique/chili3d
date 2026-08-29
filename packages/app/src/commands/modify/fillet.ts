@@ -27,8 +27,7 @@ export class FilletCommand extends EdgeCornerCommand {
      */
     set radius(value: number) {
         const changed = this.setProperty("radius", value);
-        if (!changed) return;
-        this.applyOrQueueTypedValue(value);
+        this.applyOrQueueTypedValue(value, changed);
     }
 
     protected override get operateType(): EdgeCornerOperateType {

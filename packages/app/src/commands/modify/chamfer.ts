@@ -28,8 +28,7 @@ export class ChamferCommand extends EdgeCornerCommand {
      */
     set length(value: number) {
         const changed = this.setProperty("length", value);
-        if (!changed) return;
-        this.applyOrQueueTypedValue(value);
+        this.applyOrQueueTypedValue(value, changed);
     }
 
     protected override get operateType(): EdgeCornerOperateType {

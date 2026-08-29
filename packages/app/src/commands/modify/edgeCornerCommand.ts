@@ -150,18 +150,27 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
     private pendingTypedValue?: string;
 
     /**
-     * Called by the radius/length public setter each subclass exposes.
-     * While the drag step is already active, finishes it immediately with
-     * the typed value, exactly like clicking/releasing a drag. Otherwise
-     * (still picking edges) queues it for the instant the drag step starts,
-     * so typing an exact value and pressing Enter never requires touching
-     * the drag step at all.
+     * Called by the radius/length public setter each subclass exposes, with
+     * whether the value actually changed (setProperty's return).
+     *
+     * While the drag step is already active, an actual change finishes it
+     * immediately with the typed value, exactly like clicking/releasing a
+     * drag - but an unchanged value is ignored there, so an incidental blur/
+     * tab-away while genuinely dragging can't accidentally end the command
+     * (same guard Extrude's length setter already relies on).
+     *
+     * Otherwise (still picking edges), queues the value for the instant the
+     * drag step starts - unconditionally, changed or not: queuing by itself
+     * has no effect on anything until the pick step later finishes some
+     * other, already-deliberate way (Enter/checkmark/Ctrl), so pressing Enter
+     * to accept the already-suggested default still finishes the command,
+     * instead of silently doing nothing because the value "didn't change".
      */
-    protected applyOrQueueTypedValue(value: number): void {
+    protected applyOrQueueTypedValue(value: number, changed: boolean): void {
         const view = this.document.application.activeView;
         const handler = this.document.visual.eventHandler;
         if (view && handler instanceof SnapEventHandler) {
-            handler.applyTypedInput(view, String(value));
+            if (changed) handler.applyTypedInput(view, String(value));
         } else {
             this.pendingTypedValue = String(value);
         }
