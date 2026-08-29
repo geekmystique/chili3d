@@ -1,7 +1,14 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { AsyncController, XYZ } from "../src";
+import {
+    AsyncController,
+    Config,
+    type ObjectSnapType,
+    ObjectSnapTypes,
+    ObjectSnapTypeUtils,
+    XYZ,
+} from "../src";
 import { Plane } from "../src/math";
 import {
     type LengthAtAxisSnapData,
@@ -9,6 +16,7 @@ import {
     type SnapLengthAtPlaneData,
     SnapLengthAtPlaneHandler,
 } from "../src/snap/handlers/lengthSnapEventHandler";
+import { GridSnap } from "../src/snap/snaps/gridSnap";
 import { createHandlerMockView, TestDocument } from "../test-utils";
 
 // ============================================================================
@@ -257,6 +265,46 @@ describe("SnapLengthAtPlaneHandler", () => {
         const handler = new SnapLengthAtPlaneHandler(document, controller, lengthData);
         handler.dispose();
         expect(handler.state).toBe("completed");
+    });
+
+    describe("grid snap wiring", () => {
+        let originalSnapType: ObjectSnapType;
+
+        beforeEach(() => {
+            originalSnapType = Config.instance.snapType;
+        });
+
+        afterEach(() => {
+            Config.instance.snapType = originalSnapType;
+        });
+
+        const lengthData: SnapLengthAtPlaneData = {
+            point: () => XYZ.zero,
+            plane: () => Plane.XY,
+        };
+
+        test("should not include a GridSnap by default", () => {
+            Config.instance.snapType = ObjectSnapTypeUtils.removeType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const handler = new SnapLengthAtPlaneHandler(document, controller, lengthData);
+            expect(handler.snaps.some((snap) => snap instanceof GridSnap)).toBe(false);
+        });
+
+        test("should include a GridSnap, ordered right before the plane snap, once enabled", () => {
+            Config.instance.snapType = ObjectSnapTypeUtils.addType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const handler = new SnapLengthAtPlaneHandler(document, controller, lengthData);
+
+            const gridIndex = handler.snaps.findIndex((snap) => snap instanceof GridSnap);
+            expect(gridIndex).toBeGreaterThanOrEqual(0);
+            // The plane snap hits almost everywhere in empty space too, so
+            // grid must come first or it would never be reached.
+            expect(gridIndex).toBe(handler.snaps.length - 2);
+        });
     });
 });
 

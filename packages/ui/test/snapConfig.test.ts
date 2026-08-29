@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, test } from "@rstest/core";
 // Mock CSS modules
 rs.mock("../src/statusbar/snapConfig.module.css", () => ({
     container: "sc-container",
+    gridSize: "sc-grid-size",
 }));
 
 // Mock element helpers — snap tests trigger handlers via el.click(),
@@ -20,11 +21,13 @@ describe("SnapConfig", () => {
     let originalSnapType: ObjectSnapType;
     let originalEnableSnap: boolean;
     let originalEnableSnapTracking: boolean;
+    let originalGridSize: number;
 
     beforeEach(() => {
         originalSnapType = Config.instance.snapType;
         originalEnableSnap = Config.instance.enableSnap;
         originalEnableSnapTracking = Config.instance.enableSnapTracking;
+        originalGridSize = Config.instance.gridSize;
 
         // Set defaults for consistent testing
         Config.instance.enableSnap = true;
@@ -35,14 +38,15 @@ describe("SnapConfig", () => {
         Config.instance.snapType = originalSnapType;
         Config.instance.enableSnap = originalEnableSnap;
         Config.instance.enableSnapTracking = originalEnableSnapTracking;
+        Config.instance.gridSize = originalGridSize;
     });
 
     describe("constructor", () => {
         test("should render snap type checkboxes", () => {
             const config = new SnapConfig();
             const checkboxes = config.querySelectorAll('input[type="checkbox"]');
-            // 8 snap types + 1 tracking toggle = 9 checkboxes
-            expect(checkboxes.length).toBe(9);
+            // 9 snap types + 1 tracking toggle = 10 checkboxes
+            expect(checkboxes.length).toBe(10);
         });
 
         test("should set container CSS class", () => {
@@ -53,8 +57,8 @@ describe("SnapConfig", () => {
         test("should create checkboxes with id prefix snap-", () => {
             const config = new SnapConfig();
             const snapCheckboxes = config.querySelectorAll('input[id^="snap-"]');
-            // 9 total checkboxes, all should start with snap- prefix
-            expect(snapCheckboxes.length).toBe(9);
+            // 10 total checkboxes, all should start with snap- prefix
+            expect(snapCheckboxes.length).toBe(10);
         });
 
         test("should create tracking checkbox", () => {
@@ -66,8 +70,8 @@ describe("SnapConfig", () => {
         test("should render labels for each checkbox", () => {
             const config = new SnapConfig();
             const labels = config.querySelectorAll("label");
-            // 8 snap type labels + 1 tracking label = 9
-            expect(labels.length).toBe(9);
+            // 9 snap type labels + 1 tracking label = 10
+            expect(labels.length).toBe(10);
         });
     });
 
@@ -116,7 +120,7 @@ describe("SnapConfig", () => {
 
             // Content should be regenerated: same count, new element instances
             const checkboxes = config.querySelectorAll('input[type="checkbox"]');
-            expect(checkboxes.length).toBe(9);
+            expect(checkboxes.length).toBe(10);
             expect(checkboxes[0]).not.toBe(firstCheckboxBefore);
         });
 
@@ -126,6 +130,71 @@ describe("SnapConfig", () => {
             // The snapTypeChanged method only clears on snapType/enableSnap/enableSnapTracking
             // For "language", innerHTML should NOT have been cleared
             expect(config.querySelectorAll('input[type="checkbox"]').length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("grid size input", () => {
+        test("should not render the grid size input when grid snapping is off", () => {
+            Config.instance.snapType = ObjectSnapTypeUtils.removeType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const config = new SnapConfig();
+            expect(config.querySelector("#snap-grid-size")).toBeNull();
+        });
+
+        test("should render the grid size input, prefilled with the current size, once grid snapping is on", () => {
+            Config.instance.gridSize = 5;
+            Config.instance.snapType = ObjectSnapTypeUtils.addType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const config = new SnapConfig();
+            const gridSizeInput = mustQuery<HTMLInputElement>(config, "#snap-grid-size");
+            expect(gridSizeInput.value).toBe("5");
+        });
+
+        test("should commit a valid typed size on blur", () => {
+            Config.instance.snapType = ObjectSnapTypeUtils.addType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const config = new SnapConfig();
+            const gridSizeInput = mustQuery<HTMLInputElement>(config, "#snap-grid-size");
+            gridSizeInput.value = "2.5";
+            gridSizeInput.dispatchEvent(new Event("blur"));
+            expect(Config.instance.gridSize).toBe(2.5);
+        });
+
+        test("should ignore a non-positive or non-numeric typed size on blur", () => {
+            Config.instance.gridSize = 10;
+            Config.instance.snapType = ObjectSnapTypeUtils.addType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const config = new SnapConfig();
+            const gridSizeInput = mustQuery<HTMLInputElement>(config, "#snap-grid-size");
+
+            gridSizeInput.value = "0";
+            gridSizeInput.dispatchEvent(new Event("blur"));
+            expect(Config.instance.gridSize).toBe(10);
+
+            gridSizeInput.value = "not-a-number";
+            gridSizeInput.dispatchEvent(new Event("blur"));
+            expect(Config.instance.gridSize).toBe(10);
+        });
+
+        test("should toggle grid snapping when its checkbox is clicked", () => {
+            Config.instance.snapType = ObjectSnapTypeUtils.removeType(
+                Config.instance.snapType,
+                ObjectSnapTypes.grid,
+            );
+            const config = new SnapConfig();
+            const gridCheckbox = mustQuery<HTMLInputElement>(config, `#snap-${ObjectSnapTypes.grid}`);
+
+            gridCheckbox.click();
+
+            expect(ObjectSnapTypeUtils.hasType(Config.instance.snapType, ObjectSnapTypes.grid)).toBe(true);
         });
     });
 });

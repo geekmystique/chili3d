@@ -6,9 +6,10 @@ import type { IDocument } from "../../document";
 import { type AsyncController, Precision } from "../../foundation";
 import type { I18nKeys } from "../../i18n";
 import type { Plane, XYZ } from "../../math";
+import { ObjectSnapTypes, ObjectSnapTypeUtils } from "../../snapType";
 import type { IView } from "../../visual";
-import type { SnapData, SnapResult } from "../snap";
-import { AxisSnap, ObjectSnap, PlaneSnap } from "../snaps";
+import type { ISnap, SnapData, SnapResult } from "../snap";
+import { AxisSnap, GridSnap, ObjectSnap, PlaneSnap } from "../snaps";
 import { TrackingSnap } from "../tracking";
 import { SnapEventHandler } from "./snapEventHandler";
 
@@ -62,7 +63,18 @@ export class SnapLengthAtPlaneHandler extends SnapEventHandler<SnapLengthAtPlane
         const objectSnap = new ObjectSnap(Config.instance.snapType, lengthData.point);
         const trackingSnap = new TrackingSnap(lengthData.point, false);
         const planeSnap = new PlaneSnap(lengthData.plane, lengthData.point);
-        super(document, controller, [objectSnap, trackingSnap, planeSnap], lengthData);
+        const snaps: ISnap[] = [objectSnap, trackingSnap];
+
+        // Ordered before planeSnap: both hit almost everywhere in empty space
+        // (any ray not parallel to the plane), so grid must go first or
+        // planeSnap's raw, un-rounded point would always win instead. Never
+        // allowed to outrank an actual geometry snap matched above.
+        if (ObjectSnapTypeUtils.hasType(Config.instance.snapType, ObjectSnapTypes.grid)) {
+            snaps.push(new GridSnap(() => Config.instance.gridSize, lengthData.plane, lengthData.point));
+        }
+
+        snaps.push(planeSnap);
+        super(document, controller, snaps, lengthData);
     }
 
     protected override setSnaped(view: IView, event: PointerEvent): void {

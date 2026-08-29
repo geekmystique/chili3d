@@ -48,6 +48,10 @@ const SnapTypes: Array<{
         type: ObjectSnapTypes.onSurface,
         display: "snap.onSurface",
     },
+    {
+        type: ObjectSnapTypes.grid,
+        display: "snap.grid",
+    },
 ];
 
 export class SnapConfig extends HTMLElement {
@@ -104,6 +108,30 @@ export class SnapConfig extends HTMLElement {
                     textContent: new Localize("statusBar.tracking"),
                 }),
             ),
+            ...(ObjectSnapTypeUtils.hasType(Config.instance.snapType, ObjectSnapTypes.grid)
+                ? [this.gridSizeInput()]
+                : []),
+        );
+    }
+
+    private gridSizeInput() {
+        return div(
+            label({
+                htmlFor: "snap-grid-size",
+                textContent: new Localize("statusBar.gridSize"),
+            }),
+            input({
+                type: "text",
+                id: "snap-grid-size",
+                className: style.gridSize,
+                value: String(Config.instance.gridSize),
+                onblur: (e) => {
+                    const value = Number((e.target as HTMLInputElement).value);
+                    if (Number.isFinite(value) && value > 0) {
+                        Config.instance.gridSize = value;
+                    }
+                },
+            }),
         );
     }
 }

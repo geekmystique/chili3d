@@ -5,6 +5,7 @@ import { rs } from "@rstest/core";
 import { Config, type ObjectSnapType, ObjectSnapTypes } from "../src";
 import { Plane, Ray, XYZ } from "../src/math";
 import { AxisSnap } from "../src/snap/snaps/axisSnap";
+import { GridSnap } from "../src/snap/snaps/gridSnap";
 import { PlaneSnap, WorkplaneSnap } from "../src/snap/snaps/planeSnap";
 import { PointOnCurveSnap } from "../src/snap/snaps/pointOnCurveSnap";
 import { SurfaceSnap } from "../src/snap/snaps/surfaceSnap";
@@ -166,6 +167,104 @@ describe("PlaneSnap", () => {
 
     test("removeDynamicObject and clear should be no-ops", () => {
         const snap = new PlaneSnap(() => Plane.XY);
+        expect(snap.removeDynamicObject()).toBeUndefined();
+        expect(snap.clear()).toBeUndefined();
+    });
+});
+
+// ============================================================================
+// GridSnap
+// ============================================================================
+
+describe("GridSnap", () => {
+    test("should round the hit point to the nearest grid intersection", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 3, y: 4, z: 10 }), direction: XYZ.unitZ.reverse() }),
+        });
+        const snap = new GridSnap(() => 5);
+        const data = createMouseAndDetected(view);
+
+        const result = snap.snap(data);
+        expect(result).not.toBeNull();
+        expect(result!.point).toStrictEqual(new XYZ({ x: 5, y: 5, z: 0 }));
+        expect(result!.type).toBe("grid");
+    });
+
+    test("should snap to the origin when the hit point is already inside half a grid cell of it", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 1, y: 2, z: 10 }), direction: XYZ.unitZ.reverse() }),
+        });
+        const snap = new GridSnap(() => 5);
+        const data = createMouseAndDetected(view);
+
+        const result = snap.snap(data);
+        expect(result!.point).toStrictEqual(XYZ.zero);
+    });
+
+    test("should return undefined for a non-positive grid size", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 3, y: 4, z: 10 }), direction: XYZ.unitZ.reverse() }),
+        });
+        const snap = new GridSnap(() => 0);
+        const data = createMouseAndDetected(view);
+
+        expect(snap.snap(data)).toBeUndefined();
+    });
+
+    test("should return undefined for a NaN grid size", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 3, y: 4, z: 10 }), direction: XYZ.unitZ.reverse() }),
+        });
+        const snap = new GridSnap(() => Number.NaN);
+        const data = createMouseAndDetected(view);
+
+        expect(snap.snap(data)).toBeUndefined();
+    });
+
+    test("should return undefined if the ray is parallel to the plane", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 0, y: 0, z: 5 }), direction: XYZ.unitX }),
+        });
+        const snap = new GridSnap(() => 5);
+        const data = createMouseAndDetected(view);
+
+        expect(snap.snap(data)).toBeUndefined();
+    });
+
+    test("should respect refPoint for distance calculation", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 3, y: 4, z: 10 }), direction: XYZ.unitZ.reverse() }),
+        });
+        const snap = new GridSnap(
+            () => 5,
+            undefined,
+            () => XYZ.zero,
+        );
+        const data = createMouseAndDetected(view);
+
+        const result = snap.snap(data);
+        expect(result!.distance).toBeCloseTo(new XYZ({ x: 5, y: 5, z: 0 }).distanceTo(XYZ.zero), 5);
+    });
+
+    test("should use a custom plane function when provided", () => {
+        const view = createSnapTestView({
+            rayAt: () => new Ray({ point: new XYZ({ x: 3, y: 4, z: 10 }), direction: XYZ.unitZ.reverse() }),
+            screenToWorld: () => XYZ.zero,
+        });
+        const snap = new GridSnap(
+            () => 5,
+            () => Plane.XY,
+        );
+        const data = createMouseAndDetected(view);
+
+        const result = snap.snap(data);
+        expect(result).not.toBeNull();
+        expect(result!.plane).toBeDefined();
+        expect(result!.plane!.origin).toStrictEqual(Plane.XY.origin);
+    });
+
+    test("removeDynamicObject and clear should be no-ops", () => {
+        const snap = new GridSnap(() => 5);
         expect(snap.removeDynamicObject()).toBeUndefined();
         expect(snap.clear()).toBeUndefined();
     });

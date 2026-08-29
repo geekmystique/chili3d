@@ -2,7 +2,8 @@ name: Deploy Pages
 
 on:
     push:
-        branches: ["claude/chili3d-design-timeline-jnjxwm", "feat/drag-to-set-length-radius"]
+        branches:
+            ["claude/chili3d-design-timeline-jnjxwm", "feat/drag-to-set-length-radius", "feat/grid-snap"]
     workflow_dispatch:
 
 permissions:

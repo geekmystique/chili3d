@@ -69,6 +69,13 @@ export class Config extends Observable {
         this.setProperty("snapType", snapType);
     }
 
+    get gridSize() {
+        return this.getPrivateValue("gridSize", 10);
+    }
+    set gridSize(value: number) {
+        this.setProperty("gridSize", value);
+    }
+
     get enableSnapTracking() {
         return this.getPrivateValue("enableSnapTracking", true);
     }
