@@ -309,6 +309,10 @@ describe("CommandContext", () => {
             expect(buttons.length).toBe(2);
             (buttons[0] as unknown as { _onclick: () => void })._onclick();
             expect(controller.success).toHaveBeenCalledTimes(1);
+            // "confirm" marks the checkmark as an explicit accept, as opposed
+            // to e.g. Ctrl finishing a pick to continue into a further
+            // interactive step.
+            expect(controller.success).toHaveBeenCalledWith("confirm");
 
             PubSub.default.pub("clearSelectionControl");
             expect(ctx.querySelector(".cc-selection-control")).toBeNull();

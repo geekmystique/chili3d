@@ -3,21 +3,30 @@
 
 import {
     EditableShapeNode,
+    GeometryUtils,
     I18n,
+    type I18nKeys,
     type IEdge,
     type IFace,
     type IShape,
     type IShapeFilter,
+    type IStep,
     type ISubEdgeShape,
+    type LengthAtAxisSnapData,
+    LengthAtAxisStep,
     MultistepCommand,
+    Precision,
     PubSub,
     Result,
     SelectShapeStep,
+    type ShapeMeshData,
     type ShapeNode,
     type ShapeType,
     ShapeTypes,
+    SnapEventHandler,
     Transaction,
     type VisualShapeData,
+    XYZ,
 } from "@chili3d/core";
 
 const SOLID_PARENT_TYPES: ShapeType[] = [ShapeTypes.solid, ShapeTypes.compound, ShapeTypes.compoundSolid];
@@ -29,7 +38,7 @@ const SUPPORTED_PARENT_TYPES: ShapeType[] = [...SOLID_PARENT_TYPES, ...PLANAR_PA
  * its content: containing a solid makes it 3D, otherwise (faces, wires or
  * edges inside) it is treated as 2D.
  */
-function isPlanarParent(parent: IShape): boolean {
+export function isPlanarParent(parent: IShape): boolean {
     if (PLANAR_PARENT_TYPES.includes(parent.shapeType)) return true;
     return parent.shapeType === ShapeTypes.compound && parent.findSubShapes(ShapeTypes.solid).length === 0;
 }
@@ -38,7 +47,7 @@ function isPlanarParent(parent: IShape): boolean {
  * The face an edge belongs to: the parent itself when it is a face, or the
  * containing face inside a compound; undefined for wire/edge parents.
  */
-function faceContaining(parent: IShape, sub: ISubEdgeShape): IFace | undefined {
+export function faceContaining(parent: IShape, sub: ISubEdgeShape): IFace | undefined {
     if (parent.shapeType === ShapeTypes.face) return parent as IFace;
     if (parent.shapeType !== ShapeTypes.compound) return undefined;
 
@@ -118,6 +127,52 @@ function spliceCornerEdges(allEdges: IEdge[], corner: OrderedCorner, triple: IEd
 export abstract class EdgeCornerCommand extends MultistepCommand {
     /** Apply the operation to the selected edges of a solid or compound. */
     protected abstract applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape>;
+
+    /** The configured radius (fillet) or distance (chamfer) - read-only mirror of each subclass's own property. */
+    protected abstract get cornerValue(): number;
+    /** Sets cornerValue directly (no SnapEventHandler finish side effect) - used by the drag step's live preview. */
+    protected abstract set cornerValue(value: number);
+
+    /** The tip shown while dragging to set cornerValue - "input radius..." for Fillet, generic for Chamfer. */
+    protected get cornerValuePromptKey(): I18nKeys {
+        return "prompt.pickNextPoint";
+    }
+
+    /**
+     * A value typed into the radius/length box before the drag step has
+     * actually started (still picking edges) - applied the instant that
+     * step's SnapEventHandler exists (see getCornerValueStepData), instead
+     * of requiring the user to also interact with the drag step once it
+     * begins. Cleared once applied.
+     */
+    private pendingTypedValue?: string;
+
+    /**
+     * Called by the radius/length public setter each subclass exposes, with
+     * whether the value actually changed (setProperty's return).
+     *
+     * While the drag step is already active, an actual change finishes it
+     * immediately with the typed value, exactly like clicking/releasing a
+     * drag - but an unchanged value is ignored there, so an incidental blur/
+     * tab-away while genuinely dragging can't accidentally end the command
+     * (same guard Extrude's length setter already relies on).
+     *
+     * Otherwise (still picking edges), queues the value for the instant the
+     * drag step starts - unconditionally, changed or not: queuing by itself
+     * has no effect on anything until the pick step later finishes some
+     * other, already-deliberate way (Enter/checkmark/Ctrl), so pressing Enter
+     * to accept the already-suggested default still finishes the command,
+     * instead of silently doing nothing because the value "didn't change".
+     */
+    protected applyOrQueueTypedValue(value: number, changed: boolean): void {
+        const view = this.document.application.activeView;
+        const handler = this.document.visual.eventHandler;
+        if (view && handler instanceof SnapEventHandler) {
+            if (changed) handler.applyTypedInput(view, String(value));
+        } else {
+            this.pendingTypedValue = String(value);
+        }
+    }
 
     /** Apply the operation to the corner between two edges of a face. */
     protected abstract applyToFace(face: IFace, edge1: IEdge, edge2: IEdge): Result<IShape>;
@@ -272,15 +327,35 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
         return parent.shapeType !== ShapeTypes.edge && parent.isPartner(firstParent);
     }
 
-    protected override getSteps() {
+    /** Pick the edges, then drag to set cornerValue - the same two-step shape as ExtrudeCommand.length. */
+    protected override getSteps(): IStep[] {
         return [
             new SelectShapeStep(ShapeTypes.edge, "prompt.select.edges", {
                 multiple: true,
                 shapeFilter: this._edgeFilter,
                 canFinish: this._canFinish,
+                afterSelection: this.queueValueOnExplicitConfirm,
             }),
+            new LengthAtAxisStep(this.cornerValuePromptKey, this.getCornerValueStepData, true),
         ];
     }
+
+    /**
+     * Ctrl (either keydown or +click) finishes the edge pick without marking
+     * it "confirm" - specifically so it can drop into the radius/length-drag
+     * step for real interactive dragging. Enter and the checkmark button both
+     * mark it "confirm" instead: an explicit "I'm done, apply it" gesture, so
+     * that one press finishes the whole command with the current/default
+     * cornerValue, the same as if it had been typed - no separate drag-step
+     * confirmation needed. This runs once the (already-resolved) edge-select
+     * step's own controller is still this.controller - the next step hasn't
+     * reassigned it yet.
+     */
+    private readonly queueValueOnExplicitConfirm = (): void => {
+        if (this.controller?.result?.message === "confirm") {
+            this.pendingTypedValue = String(this.cornerValue);
+        }
+    };
 
     /** A 2D operation needs exactly two edges - finish the pick once both are selected. */
     private readonly _canFinish = (selected: VisualShapeData[]) => {
@@ -288,4 +363,204 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
         if (parent === undefined) return false;
         return isPlanarParent(parent) && selected.length === 2;
     };
+
+    private readonly getCornerValueStepData = (): LengthAtAxisSnapData => {
+        const { point, direction, preview } = this.buildDragContext();
+
+        if (this.pendingTypedValue !== undefined) {
+            const text = this.pendingTypedValue;
+            this.pendingTypedValue = undefined;
+            // The drag step's SnapEventHandler doesn't exist yet at this point
+            // (SnapStep.execute constructs it, then calls picker.pickAsync,
+            // right after this function returns) - pickAsync itself assigns
+            // document.visual.eventHandler and registers the controller's
+            // completion listener synchronously, before its own first real
+            // await, so a microtask queued here always runs after both are
+            // ready, letting applyTypedInput finish the step with no visible
+            // drag interaction at all.
+            queueMicrotask(() => {
+                const view = this.document.application.activeView;
+                const handler = this.document.visual.eventHandler;
+                if (view && handler instanceof SnapEventHandler) {
+                    handler.applyTypedInput(view, text);
+                }
+            });
+        }
+
+        return {
+            point,
+            direction,
+            preview: (p) => {
+                if (!p) return [];
+                const dist = Math.abs(p.sub(point).dot(direction));
+                // Reflect the live drag distance in the properties panel - via
+                // the cornerValue setter directly, not the radius/length
+                // setter each subclass exposes, which would otherwise
+                // re-finish the step on every mouse move.
+                this.cornerValue = dist;
+                if (dist < Precision.Distance) return [];
+                return preview();
+            },
+            // Enter here (no click/drag, and never having focused the
+            // properties-panel field either) would otherwise cancel the whole
+            // command (SnapEventHandler's default) - accept the current
+            // cornerValue instead, same as clicking to confirm a drag at it.
+            acceptOnEnter: () => this.cornerValue,
+            // Plain mouse movement over the 3D view (looking around, say)
+            // must not silently change the radius/length - only an explicit
+            // Ctrl+move does.
+            requireCtrlToDrag: true,
+        };
+    };
+
+    /**
+     * Where to anchor the drag handle, and how to preview the corner edit at
+     * the current cornerValue - both computed once per finished edge
+     * selection (not once per mouse move, unlike the preview mesh itself).
+     */
+    private buildDragContext(): {
+        point: XYZ;
+        direction: XYZ;
+        preview: () => ShapeMeshData[];
+    } {
+        const shapes = this.stepDatas[0].shapes;
+        const parent = (shapes[0].shape as ISubEdgeShape).parent;
+
+        if (!isPlanarParent(parent)) {
+            return this.buildSolidDragContext(shapes, parent);
+        }
+        return this.buildCornerDragContext(shapes, parent);
+    }
+
+    /**
+     * One or more edges of a solid/compound: the handle sits at the first
+     * edge's midpoint, along its adjacent face's surface (that face's normal
+     * crossed with the edge's tangent) - dragging either way along that line
+     * grows the value, like pulling a handle across the face away from the
+     * edge. cornerValue has no direction, so only the drag's magnitude is
+     * used; which of the two ways along this line the user actually drags
+     * doesn't matter.
+     */
+    private buildSolidDragContext(shapes: VisualShapeData[], parent: IShape) {
+        const sub = shapes[0].shape as ISubEdgeShape;
+        const edge = sub.transformedMul(shapes[0].transform) as IEdge;
+        this.disposeStack.add(edge);
+
+        const mid = (edge.firstParameter() + edge.lastParameter()) / 2;
+        const point = edge.curve.value(mid);
+        const tangent = edge.curve.d1(mid).vec.normalize() ?? XYZ.unitX;
+
+        // findAncestor needs the original (untransformed) sub-edge/parent pair -
+        // it walks the parent's own topology tree to find the face(s) owning it.
+        const faces = sub.findAncestor(ShapeTypes.face, parent) as IFace[];
+        let normal = XYZ.unitZ;
+        if (faces.length > 0) {
+            const worldFace = faces[0].transformedMul(shapes[0].transform) as IFace;
+            this.disposeStack.add(worldFace);
+            normal = GeometryUtils.normal(worldFace);
+        }
+        const direction = normal.cross(tangent).normalize() ?? this.perpendicularTo(tangent);
+
+        const node = shapes[0].owner.node as ShapeNode;
+        const edgeIndexes = shapes.map((x) => (x.shape as ISubEdgeShape).index);
+        let baseShape: IShape | undefined;
+        if (node.shape.isOk) {
+            baseShape = node.shape.value.transformedMul(node.transform);
+            this.disposeStack.add(baseShape);
+        }
+
+        return {
+            point,
+            direction,
+            preview: (): ShapeMeshData[] => {
+                if (!baseShape) return [];
+                const result = this.applyToBody(baseShape, edgeIndexes);
+                if (!result.isOk) return [];
+                return [this.meshShape(result.value)];
+            },
+        };
+    }
+
+    /**
+     * Exactly two edges meeting at a corner - a face, a wire, or a
+     * standalone edge pair (isPlanarParent treats all three the same). The
+     * handle sits at the two edges' shared (or nearest) endpoint, along the
+     * bisector of their tangents there - dragging either way along that line
+     * grows the value, the same gesture as a 2D sketch fillet.
+     */
+    private buildCornerDragContext(shapes: VisualShapeData[], parent: IShape) {
+        const [worldA, worldB] = shapes.map((s) => s.shape.transformedMul(s.transform) as IEdge);
+        this.disposeStack.add(worldA);
+        this.disposeStack.add(worldB);
+        const { point, direction } = this.cornerAxis(worldA, worldB);
+
+        if (parent.shapeType === ShapeTypes.edge) {
+            // A standalone edge pair edits the transformed edges themselves
+            // (see modifyStandaloneEdges), so reuse these same copies.
+            return {
+                point,
+                direction,
+                preview: (): ShapeMeshData[] => {
+                    const triple = this.applyToEdgePair(worldA, worldB);
+                    if (!triple.isOk) return [];
+                    return triple.value.map((e) => this.meshShape(e));
+                },
+            };
+        }
+
+        // A face/wire corner edits the untransformed picked edges (see
+        // computePlanarShape) - the world-space copies above are only used
+        // for the drag axis itself.
+        const edgeA = shapes[0].shape as IEdge;
+        const edgeB = shapes[1].shape as IEdge;
+        const face = faceContaining(parent, shapes[0].shape as ISubEdgeShape);
+
+        return {
+            point,
+            direction,
+            preview: (): ShapeMeshData[] => {
+                if (face) {
+                    const result = this.applyToFace(face, edgeA, edgeB);
+                    if (!result.isOk) return [];
+                    return [this.meshShape(result.value)];
+                }
+                const triple = this.applyToEdgePair(edgeA, edgeB);
+                if (!triple.isOk) return [];
+                return triple.value.map((e) => this.meshShape(e));
+            },
+        };
+    }
+
+    /** The shared/nearest endpoint of two edges, and the bisector of their tangents away from it. */
+    private cornerAxis(edgeA: IEdge, edgeB: IEdge): { point: XYZ; direction: XYZ } {
+        const [a0, a1] = edgeA.ends();
+        const [b0, b1] = edgeB.ends();
+        const candidates: [XYZ, XYZ, XYZ, XYZ][] = [
+            [a0, a1, b0, b1],
+            [a0, a1, b1, b0],
+            [a1, a0, b0, b1],
+            [a1, a0, b1, b0],
+        ];
+        let [vertexA, farA, vertexB, farB] = candidates[0];
+        let bestDist = vertexA.distanceTo(vertexB);
+        for (const candidate of candidates.slice(1)) {
+            const dist = candidate[0].distanceTo(candidate[2]);
+            if (dist < bestDist) {
+                bestDist = dist;
+                [vertexA, farA, vertexB, farB] = candidate;
+            }
+        }
+
+        const point = vertexA.add(vertexB).multiply(0.5);
+        const awayA = farA.sub(vertexA).normalize() ?? XYZ.unitX;
+        const awayB = farB.sub(vertexB).normalize() ?? XYZ.unitX;
+        const bisector = awayA.add(awayB).normalize();
+        return { point, direction: bisector ?? this.perpendicularTo(awayA) };
+    }
+
+    /** Any unit vector perpendicular to v - used only for the degenerate case where the natural one collapses to zero. */
+    private perpendicularTo(v: XYZ): XYZ {
+        const helper = Math.abs(v.dot(XYZ.unitZ)) < 0.9 ? XYZ.unitZ : XYZ.unitX;
+        return v.cross(helper).normalize() ?? XYZ.unitX;
+    }
 }

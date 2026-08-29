@@ -93,6 +93,100 @@ describe("SnapLengthAtAxisHandler", () => {
         handler.dispose();
         expect(handler.state).toBe("completed");
     });
+
+    describe("applyTypedInput", () => {
+        test("should complete the step with the exact typed value", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+            };
+            const view = createHandlerMockView();
+            let succeeded = false;
+            controller.onCompleted(() => {
+                succeeded = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            const result = handler.applyTypedInput(view, "25");
+
+            expect(result.isOk).toBe(true);
+            expect(succeeded).toBe(true);
+            expect(handler.state).toBe("completed");
+            expect(handler.snaped?.point).toEqual(new XYZ({ x: 25, y: 0, z: 0 }));
+        });
+
+        test("should not complete the step, and report the error, for invalid text", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+            };
+            const view = createHandlerMockView();
+            let succeeded = false;
+            controller.onCompleted(() => {
+                succeeded = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            const result = handler.applyTypedInput(view, "not-a-number");
+
+            expect(result.isOk).toBe(false);
+            expect(succeeded).toBe(false);
+            expect(handler.state).toBe("idle");
+        });
+    });
+
+    describe("Enter with acceptOnEnter", () => {
+        test("should finish the step with acceptOnEnter's value instead of cancelling", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+                acceptOnEnter: () => 10,
+            };
+            const view = createHandlerMockView();
+            let cancelled = false;
+            let succeeded = false;
+            controller.onCancelled(() => {
+                cancelled = true;
+            });
+            controller.onCompleted(() => {
+                succeeded = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            handler.keyDown(view, {
+                key: "Enter",
+                preventDefault: () => {},
+                stopImmediatePropagation: () => {},
+            } as unknown as KeyboardEvent);
+
+            expect(cancelled).toBe(false);
+            expect(succeeded).toBe(true);
+            expect(handler.state).toBe("completed");
+            expect(handler.snaped?.point).toEqual(new XYZ({ x: 10, y: 0, z: 0 }));
+        });
+
+        test("should still cancel on Enter when acceptOnEnter is not provided", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+            };
+            const view = createHandlerMockView();
+            let cancelled = false;
+            controller.onCancelled(() => {
+                cancelled = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            handler.keyDown(view, {
+                key: "Enter",
+                preventDefault: () => {},
+                stopImmediatePropagation: () => {},
+            } as unknown as KeyboardEvent);
+
+            expect(cancelled).toBe(true);
+            expect(handler.state).toBe("cancelled");
+        });
+    });
 });
 
 // ============================================================================

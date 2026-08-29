@@ -14,7 +14,23 @@ export class ChamferCommand extends EdgeCornerCommand {
         return this.getPrivateValue("length", 10);
     }
 
+    /**
+     * Visible from the start of the command, defaulting to 10 - typing an
+     * exact value here applies it immediately if the distance-drag step (see
+     * EdgeCornerCommand.getSteps) is already live, or queues it for the
+     * instant that step starts otherwise, so typing while still picking
+     * edges never requires touching the drag step at all.
+     */
     set length(value: number) {
+        const changed = this.setProperty("length", value);
+        this.applyOrQueueTypedValue(value, changed);
+    }
+
+    protected override get cornerValue(): number {
+        return this.length;
+    }
+
+    protected override set cornerValue(value: number) {
         this.setProperty("length", value);
     }
 
