@@ -41,7 +41,7 @@ export class Picker implements IPicker {
         handler.selectedState = options?.selectedState ?? VisualStates.edgeSelected;
         handler.highlightState = options?.highlightState ?? VisualStates.edgeHighlight;
         handler.canFinish = options?.canFinish;
-        await this.pickAsync(handler, prompt, controller, multi);
+        await this.pickAsync(handler, prompt, controller, options?.showControl ?? multi);
         return this.document.selection.getSelectedShapes();
     }
 
@@ -52,7 +52,7 @@ export class Picker implements IPicker {
     ): Promise<VisualNode[]> {
         const multi = options?.multi ?? false;
         const handler = new NodeSelectionHandler(this.document, multi, controller, options?.nodeFilter);
-        await this.pickAsync(handler, prompt, controller, multi);
+        await this.pickAsync(handler, prompt, controller, options?.showControl ?? multi);
         return this.document.selection.getSelectedNodes() as VisualNode[];
     }
 

@@ -1,0 +1,25 @@
+.root {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 40px;
+    flex: 0 0 auto;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--panel-background-color);
+    overflow: hidden;
+}
+
+.label {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: bolder;
+    color: var(--text-secondary-color, inherit);
+    margin: 0 10px;
+    user-select: none;
+}
+
+@media (max-width: 680px) {
+    .root {
+        display: none;
+    }
+}

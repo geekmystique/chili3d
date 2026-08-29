@@ -17,11 +17,19 @@ export interface PickShapeOptions {
     highlightState?: VisualState;
     /** In multi mode, finish the pick automatically once this returns true. */
     canFinish?: (selected: VisualShapeData[]) => boolean;
+    /**
+     * Show the confirm/cancel control regardless of `multi`. A single-pick
+     * step normally has no use for it (picking finishes the step on its own),
+     * but a re-edit step that also exposes other properties on the command
+     * (a length, say) needs an explicit way to confirm without (re-)picking.
+     */
+    showControl?: boolean;
 }
 
 export interface PickNodeOptions {
     nodeFilter?: INodeFilter;
     multi?: boolean;
+    showControl?: boolean;
 }
 
 export interface ISelection extends IDisposable {

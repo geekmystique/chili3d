@@ -33,9 +33,29 @@ export interface GeometryNodeOptions {
     name: string;
     materialId?: string | string[];
     id?: string;
+    createdOrder?: number;
 }
 
 export abstract class GeometryNode extends VisualNode {
+    /**
+     * Process-wide high-water mark for `createdOrder`. Bumped past every value
+     * that's ever assigned - whether freshly minted for a new node or restored
+     * from a deserialized one - so a node created after a document loads always
+     * sorts after everything that document already contained, regardless of
+     * the order individual nodes happen to be deserialized in.
+     */
+    private static nextOrder = 0;
+
+    /**
+     * A monotonically increasing tag recording *when* this node was created,
+     * independent of its position in the tree. Reparenting/moving a node never
+     * changes it; only actual node creation does - `clone()` strips it so a
+     * clone gets its own fresh value. This is what the timeline sorts by, since
+     * tree order and creation order can diverge once nodes are reorganized.
+     */
+    @serialize()
+    readonly createdOrder: number;
+
     @serialize()
     @property("common.material", { type: "materialId" })
     get materialId(): string | string[] {
@@ -59,6 +79,8 @@ export abstract class GeometryNode extends VisualNode {
 
     constructor(options: GeometryNodeOptions) {
         super(options.document, options.name, options.id ?? Id.generate());
+        this.createdOrder = options.createdOrder ?? GeometryNode.nextOrder;
+        GeometryNode.nextOrder = Math.max(GeometryNode.nextOrder, this.createdOrder + 1);
         this.setPrivateValue(
             "materialId",
             options.materialId ?? options.document.modelManager.materials.at(0)?.id ?? "",

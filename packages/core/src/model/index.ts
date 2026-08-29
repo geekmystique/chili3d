@@ -3,6 +3,7 @@
 
 export * from "./annotation";
 export * from "./component";
+export * from "./dependencyGraph";
 export * from "./facebaseNode";
 export * from "./folderNode";
 export * from "./geometryNode";

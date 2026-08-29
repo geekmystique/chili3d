@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import { command, type IEdge, type IFace, type IShape, property, type Result } from "@chili3d/core";
+import type { EdgeCornerOperateType } from "../../bodys/edgeCorner";
 import { EdgeCornerCommand } from "./edgeCornerCommand";
 
 @command({
@@ -14,12 +15,31 @@ export class ChamferCommand extends EdgeCornerCommand {
         return this.getPrivateValue("length", 10);
     }
 
+    /**
+     * Visible from the start of the command, defaulting to 10 - typing an
+     * exact value here applies it, the same pattern as
+     * ExtrudeCommand.length/FilletCommand.radius. While still picking edges,
+     * this queues the value for the instant the distance-drag step
+     * (EdgeCornerCommand.getSteps) starts, finishing it immediately with no
+     * drag needed; once that step is already live, finishes it right away
+     * instead. Either way, dragging keeps this in sync via the cornerValue
+     * setter below, not this one, which would otherwise re-finish the step
+     * every move.
+     */
     set length(value: number) {
-        this.setProperty("length", value);
+        const changed = this.setProperty("length", value);
+        this.applyOrQueueTypedValue(value, changed);
     }
 
-    protected override applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape> {
-        return shapeFactory.chamfer(shape, edgeIndexes, this.length);
+    protected override get operateType(): EdgeCornerOperateType {
+        return "chamfer";
+    }
+
+    protected override get cornerValue(): number {
+        return this.length;
+    }
+    protected override set cornerValue(value: number) {
+        this.setProperty("length", value);
     }
 
     protected override applyToFace(face: IFace, edge1: IEdge, edge2: IEdge): Result<IShape> {

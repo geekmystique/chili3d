@@ -10,6 +10,7 @@ import {
     PointStep,
     type XYZ,
 } from "@chili3d/core";
+import type { PlacementKind } from "../../bodys/placement";
 import { TransformedCommand } from "./transformedCommand";
 
 @command({
@@ -17,6 +18,10 @@ import { TransformedCommand } from "./transformedCommand";
     icon: "icon-move",
 })
 export class Move extends TransformedCommand {
+    protected override get placementKind(): PlacementKind {
+        return "move";
+    }
+
     getSteps(): IStep[] {
         return [
             new PointStep("prompt.pickFistPoint", undefined, true),

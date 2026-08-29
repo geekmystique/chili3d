@@ -10,6 +10,7 @@ import {
     I18n,
     type IStep,
     MeshDataUtils,
+    NodeUtils,
     type PointSnapData,
     PointStep,
     Precision,
@@ -29,7 +30,7 @@ export class BezierCommand extends CreateCommand {
         const bezier = shapeFactory.bezier(this.stepDatas.map((x) => x.point!));
         return new EditableShapeNode({
             document: this.document,
-            name: I18n.translate("command.create.bezier"),
+            name: NodeUtils.nextNumberedName(this.document, I18n.translate("command.create.bezier")),
             shape: bezier.value,
         });
     }

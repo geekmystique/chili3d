@@ -52,10 +52,30 @@ export const PubSubMock = {
  * PubSub stub that records `sub` handlers (keyed by topic) and `pub` calls, so
  * tests can look handlers up, invoke them directly and assert published topics.
  * Call `reset()` between tests.
+ *
+ * `handlers.get(topic)` always returns one callable, matching real PubSub's
+ * single-topic-many-subscribers shape from the caller's side: subscribing a
+ * second handler to a topic that already has one doesn't replace it (a plain
+ * `Map.set` would) - both are kept, in registration order, and `.get(topic)`
+ * returns a small wrapper that invokes all of them. `remove` drops just the
+ * matching handler, same as real PubSub.
  */
 export function createPubSubRecorder() {
+    const registrations = new Map<string, Array<(...args: unknown[]) => unknown>>();
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const pubs: { topic: string; args: unknown[] }[] = [];
+
+    function rebuild(topic: string) {
+        const list = registrations.get(topic);
+        if (!list || list.length === 0) {
+            handlers.delete(topic);
+            return;
+        }
+        handlers.set(topic, (...args: unknown[]) => {
+            list.forEach((h) => h(...args));
+        });
+    }
+
     return {
         handlers,
         pubs,
@@ -65,11 +85,22 @@ export function createPubSubRecorder() {
                     pubs.push({ topic, args });
                 },
                 sub: (topic: string, handler: (...args: unknown[]) => unknown) => {
-                    handlers.set(topic, handler);
+                    const list = registrations.get(topic) ?? [];
+                    list.push(handler);
+                    registrations.set(topic, list);
+                    rebuild(topic);
+                },
+                remove: (topic: string, handler: (...args: unknown[]) => unknown) => {
+                    const list = registrations.get(topic);
+                    if (!list) return;
+                    const index = list.indexOf(handler);
+                    if (index !== -1) list.splice(index, 1);
+                    rebuild(topic);
                 },
             },
         },
         reset() {
+            registrations.clear();
             handlers.clear();
             pubs.length = 0;
         },

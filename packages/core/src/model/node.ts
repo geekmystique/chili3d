@@ -81,6 +81,11 @@ export abstract class Node extends HistoryObservable implements INode {
             const serialized = Serializer.serializeObject(this);
             serialized["id"] = Id.generate();
             serialized["name"] = `${this.name}_copy`;
+            // A clone is a newly created node for timeline/history purposes -
+            // it should get its own fresh createdOrder, not inherit the
+            // original's (GeometryNode subclasses only; harmless no-op key
+            // removal for node types that don't serialize one).
+            delete serialized["createdOrder"];
             return Serializer.deserializeObject(this.document, serialized) as this;
         } finally {
             this.document.history.disabled = oldValue;
@@ -93,6 +98,28 @@ export abstract class Node extends HistoryObservable implements INode {
 export class NodeUtils {
     public static isLinkedListNode(node: INode): node is INodeLinkedList {
         return (node as INodeLinkedList).add !== undefined;
+    }
+
+    /**
+     * `"${baseName} ${n}"`, with `n` one past the highest such suffix already
+     * used anywhere in the document (0 if none) - so new nodes of a given
+     * type read "Box 1", "Box 2", ... instead of all sharing one bare name.
+     * Derived fresh from the current tree each call (not a persisted
+     * counter), so it can't drift out of sync with renames, deletions, or a
+     * reloaded document that already contains higher-numbered names.
+     */
+    static nextNumberedName(document: IDocument, baseName: string): string {
+        const escaped = baseName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const pattern = new RegExp(`^${escaped} (\\d+)$`);
+        let max = 0;
+        // Optional chain: some test documents stand in a plain modelManager
+        // object without findNodes implemented. Production documents always
+        // have one.
+        for (const node of document.modelManager.findNodes?.() ?? []) {
+            const match = pattern.exec(node.name);
+            if (match) max = Math.max(max, Number(match[1]));
+        }
+        return `${baseName} ${max + 1}`;
     }
 
     static getNodesBetween(node1: INode, node2: INode): INode[] {

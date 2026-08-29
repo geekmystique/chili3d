@@ -1,8 +1,16 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import type { IDocument, IEdge, IWire, ShapeType } from "@chili3d/core";
-import { Result, ShapeTypes, XYZ } from "@chili3d/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IEdge,
+    type INode,
+    type IShape,
+    type IWire,
+    Result,
+    XYZ,
+} from "@chili3d/core";
 import { createMockDocument, createMockEdgeCurve } from "@chili3d/core/test-utils";
 import { beforeEach, describe, expect, rs, test } from "@rstest/core";
 import { FaceNode } from "../../src/bodys/face";
@@ -24,86 +32,121 @@ function mockLineEdge(x1: number, y1: number, x2: number, y2: number): IEdge {
 function mockClosedWire(...edges: IEdge[]) {
     return Object.assign(createMockWire(), {
         isClosed: () => true,
-        findSubShapes: (type: ShapeType) => (type === ShapeTypes.edge ? edges : []),
+        findSubShapes: (_type: unknown) => edges,
     });
+}
+
+/**
+ * Patch a mock shape so transformedMul (called by FaceNode.generateShape() on
+ * each resolved source shape) returns itself instead of a fresh, override-less
+ * instance - preserving whatever shapeType/findSubShapes overrides the test
+ * set up.
+ */
+function selfTransforming<T extends IShape>(shape: T): T {
+    (shape as unknown as { transformedMul: () => T }).transformedMul = () => shape;
+    return shape;
 }
 
 describe("FaceNode", () => {
     let doc: IDocument;
+    let nodes: INode[];
 
     beforeEach(() => {
-        doc = createMockDocument();
+        nodes = [];
+        doc = createMockDocument({
+            modelManager: { findNode: (predicate: (n: INode) => boolean) => nodes.find(predicate) } as any,
+        });
     });
 
+    function sourceNode(shape: IShape) {
+        const node = new EditableShapeNode({ document: doc, name: "src", shape: selfTransforming(shape) });
+        nodes.push(node);
+        return node;
+    }
+
+    function makeNode(...shapes: IShape[]) {
+        return new FaceNode({ document: doc, sourceNodeIds: shapes.map((s) => sourceNode(s).id) });
+    }
+
     describe("constructor", () => {
-        test("should initialize shapes", () => {
-            const edge = createMockEdge();
-            const wire = createMockWire();
-            const shapes = [edge, wire] as any;
-            const node = new FaceNode({ document: doc, shapes });
-            expect(node.shapes).toBe(shapes);
+        test("should initialize sourceNodeIds", () => {
+            const edge = sourceNode(createMockEdge());
+            const wire = sourceNode(createMockWire());
+            const node = new FaceNode({ document: doc, sourceNodeIds: [edge.id, wire.id] });
+            expect(node.sourceNodeIds).toEqual([edge.id, wire.id]);
         });
 
         test("should set name from display()", () => {
-            const node = new FaceNode({ document: doc, shapes: [createMockEdge()] as any });
-            expect(node.name).toBe("body.face");
+            expect(makeNode(createMockEdge()).name).toBe("body.face 1");
         });
 
-        test("should accept empty shapes array", () => {
-            const node = new FaceNode({ document: doc, shapes: [] });
-            expect(node.shapes.length).toBe(0);
+        test("should accept an empty sourceNodeIds array", () => {
+            const node = new FaceNode({ document: doc, sourceNodeIds: [] });
+            expect(node.sourceNodeIds.length).toBe(0);
         });
     });
 
     describe("display", () => {
         test("should return body.face", () => {
-            const node = new FaceNode({ document: doc, shapes: [createMockEdge()] as any });
-            expect(node.display()).toBe("body.face");
+            expect(makeNode(createMockEdge()).display()).toBe("body.face");
         });
     });
 
-    describe("getters", () => {
-        test("should return shapes from constructor", () => {
-            const wire = createMockWire();
-            const node = new FaceNode({ document: doc, shapes: [wire] as any });
-            expect(node.shapes[0]).toBe(wire);
-        });
-    });
-
-    describe("setters", () => {
-        test("setting shapes should update value", () => {
-            const mockFace = createMockShape();
+    describe("redirectReference", () => {
+        test("should redirect a matching source id and recompute", () => {
             setupShapeFactoryMock({
                 wire: () => Result.ok(createMockWire()),
-                face: () => Result.ok(mockFace),
+                face: () => Result.ok(createMockShape()),
             });
-            const node = new FaceNode({ document: doc, shapes: [createMockEdge()] as any });
-            const newShapes = [createMockWire(), mockLineEdge(0, 0, 10, 0)] as any;
-            node.shapes = newShapes;
-            expect(node.shapes).toBe(newShapes);
+            const edgeA = sourceNode(mockLineEdge(0, 0, 10, 0));
+            const edgeB = sourceNode(mockLineEdge(10, 0, 10, 10));
+            const newSource = sourceNode(mockLineEdge(10, 0, 10, 10));
+            const node = new FaceNode({ document: doc, sourceNodeIds: [edgeA.id, edgeB.id] });
+            expect(node.shape.isOk).toBe(true);
+
+            const changed = node.redirectReference(edgeB.id, newSource.id);
+
+            expect(changed).toBe(true);
+            expect(node.sourceNodeIds).toEqual([edgeA.id, newSource.id]);
+        });
+
+        test("should return false and leave sourceNodeIds untouched when the id doesn't match", () => {
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => Result.ok(createMockShape()),
+            });
+            const node = makeNode(createMockEdge());
+            const before = node.sourceNodeIds;
+
+            const changed = node.redirectReference("unrelated-id", "new-id");
+
+            expect(changed).toBe(false);
+            expect(node.sourceNodeIds).toEqual(before);
         });
     });
 
-    describe("onPropertyChanged", () => {
-        test("should emit when shapes change", () => {
-            const mockFace = createMockShape();
-            setupShapeFactoryMock({
-                wire: () => Result.ok(createMockWire()),
-                face: () => Result.ok(mockFace),
-            });
-            const node = new FaceNode({ document: doc, shapes: [createMockEdge()] as any });
-            const handler = rs.fn((_property: string) => {});
-            node.onPropertyChanged(handler);
-            node.shapes = [mockClosedWire(mockLineEdge(0, 0, 10, 0), mockLineEdge(10, 0, 10, 10))] as any;
-            expect(handler.mock.calls.map((c) => c[0])).toContain("shapes");
+    describe("primaryInputId", () => {
+        test("should be the first source node id", () => {
+            const edgeA = sourceNode(createMockEdge());
+            const edgeB = sourceNode(createMockEdge());
+            const node = new FaceNode({ document: doc, sourceNodeIds: [edgeA.id, edgeB.id] });
+
+            expect(node.primaryInputId).toBe(edgeA.id);
         });
     });
 
     describe("generateShape", () => {
-        test("should return error when shapes is empty", () => {
-            const node = new FaceNode({ document: doc, shapes: [] });
+        test("should return error when sourceNodeIds is empty", () => {
+            const node = new FaceNode({ document: doc, sourceNodeIds: [] });
             const result = node.generateShape();
             expect(result.isOk).toBe(false);
+        });
+
+        test("should return an error when a source node no longer exists", () => {
+            const node = new FaceNode({ document: doc, sourceNodeIds: ["missing-id"] });
+            const result = node.generateShape();
+            expect(result.isOk).toBe(false);
+            expect(result.error).toContain("missing-id");
         });
 
         test("should call shapeFactory.wire and shapeFactory.face for closed edges", () => {
@@ -112,11 +155,7 @@ describe("FaceNode", () => {
             const wire = rs.fn((_edges: IEdge[]) => Result.ok(mockWire));
             const face = rs.fn((_wires: IWire[]) => Result.ok(faceShape));
             setupShapeFactoryMock({ wire, face });
-            const node = new FaceNode({
-                document: doc,
-                shapes: [mockLineEdge(0, 0, 10, 0)] as any,
-            });
-            const result = node.generateShape();
+            const result = makeNode(mockLineEdge(0, 0, 10, 0)).generateShape();
             expect(result.isOk).toBe(true);
             expect(wire).toHaveBeenCalledTimes(1);
             expect(wire.mock.calls[0][0].length).toBe(1);
@@ -143,8 +182,7 @@ describe("FaceNode", () => {
                 mockLineEdge(10, 90, 10, 10),
             ] as unknown as IEdge[];
             const shapes = [outer[0], inner[0], outer[1], inner[1], inner[2], outer[2], inner[3], outer[3]];
-            const node = new FaceNode({ document: doc, shapes: shapes });
-            const result = node.generateShape();
+            const result = makeNode(...shapes).generateShape();
             expect(result.isOk).toBe(true);
             expect(wire).toHaveBeenCalledTimes(2);
             const groups = wire.mock.calls.map((c) => c[0] as IEdge[]);
@@ -165,11 +203,11 @@ describe("FaceNode", () => {
             const wire = rs.fn((_edges: IEdge[]) => Result.ok(createMockWire()));
             const face = rs.fn((_wires: IWire[]) => Result.ok(createMockShape()));
             setupShapeFactoryMock({ wire, face });
-            const node = new FaceNode({
-                document: doc,
-                shapes: [existingWire, mockLineEdge(0, 0, 10, 0), mockLineEdge(10, 0, 10, 10)] as any,
-            });
-            const result = node.generateShape();
+            const result = makeNode(
+                existingWire,
+                mockLineEdge(0, 0, 10, 0),
+                mockLineEdge(10, 0, 10, 10),
+            ).generateShape();
             expect(result.isOk).toBe(true);
             expect(wire).toHaveBeenCalledTimes(1);
             expect(face).toHaveBeenCalledTimes(1);
@@ -181,8 +219,7 @@ describe("FaceNode", () => {
             const mockWire = mockClosedWire(mockLineEdge(0, 0, 10, 0), mockLineEdge(10, 0, 10, 10));
             const face = rs.fn((_wires: IWire[]) => Result.ok(createMockShape()));
             setupShapeFactoryMock({ face });
-            const node = new FaceNode({ document: doc, shapes: [mockWire] as any });
-            const result = node.generateShape();
+            const result = makeNode(mockWire).generateShape();
             expect(result.isOk).toBe(true);
             expect(face).toHaveBeenCalledTimes(1);
             expect(face.mock.calls[0][0].length).toBe(1);
@@ -192,11 +229,85 @@ describe("FaceNode", () => {
             setupShapeFactoryMock({
                 wire: () => Result.err("cannot create wire"),
             });
-            const node = new FaceNode({
-                document: doc,
-                shapes: [mockLineEdge(0, 0, 10, 0)] as any,
+            expect(() => makeNode(mockLineEdge(0, 0, 10, 0)).generateShape()).toThrow(
+                "Cannot create wire from open shapes",
+            );
+        });
+
+        test("should recompute when a source node's shape changes", () => {
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => Result.ok(createMockShape()),
             });
-            expect(() => node.generateShape()).toThrow("Cannot create wire from open shapes");
+            const source = sourceNode(mockLineEdge(0, 0, 10, 0));
+            const node = new FaceNode({ document: doc, sourceNodeIds: [source.id] });
+            expect(node.shape.isOk).toBe(true);
+
+            let calls = 0;
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            source.shape = Result.ok(selfTransforming(mockLineEdge(0, 0, 10, 0)));
+
+            expect(calls).toBe(1);
+        });
+
+        test("should not recompute after being disposed", () => {
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => Result.ok(createMockShape()),
+            });
+            const source = sourceNode(mockLineEdge(0, 0, 10, 0));
+            const node = new FaceNode({ document: doc, sourceNodeIds: [source.id] });
+            expect(node.shape.isOk).toBe(true);
+
+            node.dispose();
+            let calls = 0;
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            source.shape = Result.ok(selfTransforming(mockLineEdge(0, 0, 10, 0)));
+
+            expect(calls).toBe(0);
+        });
+    });
+
+    describe("editCommandKey", () => {
+        test("should be modify.faceEdit", () => {
+            expect(makeNode(mockLineEdge(0, 0, 10, 0)).editCommandKey).toBe("modify.faceEdit");
+        });
+    });
+
+    describe("updateSources", () => {
+        test("should redirect to a new set of sources and recompute", () => {
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => Result.ok(createMockShape()),
+            });
+            const node = makeNode(mockLineEdge(0, 0, 10, 0));
+            expect(node.shape.isOk).toBe(true);
+
+            let calls = 0;
+            setupShapeFactoryMock({
+                wire: () => Result.ok(createMockWire()),
+                face: () => {
+                    calls++;
+                    return Result.ok(createMockShape());
+                },
+            });
+            const newSource = sourceNode(mockLineEdge(0, 0, 10, 0));
+            node.updateSources([newSource.id]);
+
+            expect(node.sourceNodeIds).toEqual([newSource.id]);
+            expect(calls).toBe(1);
         });
     });
 });

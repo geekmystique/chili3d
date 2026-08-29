@@ -211,6 +211,62 @@ describe("DropdownController", () => {
         });
     });
 
+    describe("openAt", () => {
+        test("should position the dropdown at the given point instead of anchoring to an element", () => {
+            controller.openAt(120, 340, () => {});
+            const dropdown = document.body.querySelector(".test-dropdown") as HTMLElement;
+            expect(dropdown).not.toBeNull();
+            expect(dropdown.style.left).toBe("120px");
+            expect(dropdown.style.top).toBe("340px");
+        });
+
+        test("should set isOpened and add to openedDropdowns", () => {
+            controller.openAt(0, 0, () => {});
+            expect(controller.isOpened).toBe(true);
+            expect(DropdownController.openedDropdowns.has(controller)).toBe(true);
+        });
+
+        test("should call buildItems callback", () => {
+            let called = false;
+            controller.openAt(0, 0, (dropdown) => {
+                called = true;
+                expect(dropdown).not.toBeNull();
+            });
+            expect(called).toBe(true);
+        });
+
+        test("should be idempotent — second call does nothing while already open", () => {
+            controller.openAt(10, 10, () => {});
+            controller.openAt(20, 20, () => {
+                throw new Error("buildItems should not be called again");
+            });
+            const dropdown = document.body.querySelector(".test-dropdown") as HTMLElement;
+            expect(dropdown.style.left).toBe("10px");
+        });
+
+        test("should close other opened dropdowns before opening", () => {
+            const other = new DropdownController("other-dropdown");
+            const anchor = document.createElement("div");
+            document.body.appendChild(anchor);
+            other.open(anchor, () => {});
+            expect(other.isOpened).toBe(true);
+
+            controller.openAt(5, 5, () => {});
+            expect(other.isOpened).toBe(false);
+            expect(controller.isOpened).toBe(true);
+
+            anchor.remove();
+            other.dispose();
+        });
+
+        test("should be dismissed by close(), same as open()", () => {
+            controller.openAt(0, 0, () => {});
+            controller.close();
+            expect(controller.isOpened).toBe(false);
+            expect(document.body.querySelector(".test-dropdown")).toBeNull();
+        });
+    });
+
     describe("close", () => {
         test("should set isOpened to false", () => {
             const anchor = document.createElement("div");

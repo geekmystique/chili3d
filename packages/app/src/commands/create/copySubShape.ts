@@ -3,15 +3,16 @@
 
 import {
     command,
-    EditableShapeNode,
     MultistepCommand,
     PubSub,
     SelectShapeStep,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
     ShapeTypeUtils,
     Transaction,
 } from "@chili3d/core";
+import { CopySubShapeNode, sweepRefFromPick } from "../../bodys";
 
 @command({
     key: "create.copyShape",
@@ -21,15 +22,16 @@ export class CopySubShapeCommand extends MultistepCommand {
     protected override executeMainTask() {
         Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
             this.stepDatas[0].shapes.forEach((x) => {
-                const subShape = x.shape.clone();
-                const model = new EditableShapeNode({
+                const ref = sweepRefFromPick(x.owner.node as ShapeNode, x.shape);
+                const model = new CopySubShapeNode({
                     document: this.document,
-                    name: ShapeTypeUtils.stringValue(subShape.shapeType),
-                    shape: subShape,
+                    sourceNodeId: ref.nodeId,
+                    subShapeType: ref.shapeType,
+                    index: ref.index,
                 });
+                model.name = ShapeTypeUtils.stringValue(x.shape.shapeType);
 
                 const node = x.owner.node;
-                model.transform = node.transform;
                 node.parent?.insertAfter(node, model);
             });
             this.document.visual.update();

@@ -1,15 +1,26 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Matrix4, ShapeTypes, XYZ } from "@chili3d/core";
-import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Matrix4,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+    XYZ,
+} from "@chili3d/core";
+import { afterAll, beforeAll, describe, expect, rs, test } from "@rstest/core";
 import { RevolvedNode } from "../../../src/bodys/revolve";
 import { Revolve } from "../../../src/commands/create/revolve";
 import {
     ensureGlobalStubApp,
+    mockShape,
     seedStepDatas,
     shapeData,
     shapeStepResult,
+    type TrackingParent,
     wireCommand,
 } from "../commandTestUtils";
 
@@ -18,6 +29,49 @@ beforeAll(() => {
     restoreApp = ensureGlobalStubApp();
 });
 afterAll(() => restoreApp());
+
+function liveSectionNode(doc: IDocument, shapeType: ShapeType) {
+    const shape = mockShape({ shapeType });
+    return new EditableShapeNode({
+        document: doc,
+        name: "section",
+        shape: shape as unknown as IShape,
+        materialId: "mat-1",
+    });
+}
+
+/**
+ * A minimal pick-owner stand-in: sweepRefFromPick (used to derive
+ * sectionShapeType/sectionIndex) reads owner.shape to decide whole-shape vs
+ * sub-shape, so a bare `{ id }` node isn't enough once a real pick owner is
+ * expected.
+ */
+function mockOwner(id: string, shapeType: ShapeType, findSubShapes: (type: number) => IShape[] = () => []) {
+    return { id, shape: Result.ok({ shapeType, findSubShapes } as unknown as IShape) };
+}
+
+function axisStepData(overrides: { transform?: Matrix4; node?: unknown } = {}) {
+    const axisEdge = {
+        shapeType: ShapeTypes.edge,
+        curve: {
+            basisCurve: {
+                direction: XYZ.unitZ,
+                value: () => XYZ.zero,
+            },
+        },
+    };
+    return {
+        type: "shape" as const,
+        shapes: [
+            shapeData({
+                shape: axisEdge,
+                point: XYZ.zero,
+                transform: overrides.transform ?? Matrix4.identity(),
+                node: overrides.node,
+            }),
+        ],
+    } as any;
+}
 
 describe("Revolve", () => {
     test("should have command metadata", () => {
@@ -45,37 +99,26 @@ describe("Revolve", () => {
     });
 
     describe("geometryNode", () => {
-        test("should build a RevolvedNode from a section profile and a line axis", () => {
+        test("should build a RevolvedNode referencing the picked section node, with a line axis", () => {
             const cmd = new Revolve();
             wireCommand(cmd);
-            // section profile (a face on the XY plane).
             const sectionShape = {
                 shapeType: ShapeTypes.face,
                 normal: () => [XYZ.zero, XYZ.unitZ],
             };
-            // axis edge: an edge whose curve.basisCurve is a line passing through
-            // the origin with direction +Z. value(0) returns the origin.
-            const axisEdge = {
-                shapeType: ShapeTypes.edge,
-                curve: {
-                    basisCurve: {
-                        direction: XYZ.unitZ,
-                        value: () => XYZ.zero,
-                    },
-                },
-            };
-            const transform = Matrix4.identity();
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: sectionShape, point: XYZ.zero }]),
-                {
-                    type: "shape" as const,
-                    shapes: [shapeData({ shape: axisEdge, point: XYZ.zero, transform })],
-                } as any,
+                shapeStepResult([
+                    { shape: sectionShape, node: mockOwner("sect-1", ShapeTypes.face), point: XYZ.zero },
+                ]),
+                axisStepData(),
             ]);
 
             const node = (cmd as any).geometryNode();
             expect(node).toBeInstanceOf(RevolvedNode);
             expect(node.angle).toBe(360);
+            expect(node.sectionNodeId).toBe("sect-1");
+            expect(node.sectionShapeType).toBeUndefined();
+            expect(node.sectionIndex).toBeUndefined();
             // axis anchored at the origin, pointing along +Z
             expect(node.axis.point.isEqualTo(XYZ.zero)).toBe(true);
             expect(node.axis.direction.isEqualTo(XYZ.unitZ)).toBe(true);
@@ -85,24 +128,185 @@ describe("Revolve", () => {
             const cmd = new Revolve();
             cmd.angle = 90;
             wireCommand(cmd);
-            const sectionShape = {
-                shapeType: ShapeTypes.face,
-                normal: () => [XYZ.zero, XYZ.unitZ],
-            };
-            const axisEdge = {
-                shapeType: ShapeTypes.edge,
-                curve: { basisCurve: { direction: XYZ.unitZ, value: () => XYZ.zero } },
-            };
+            const sectionShape = { shapeType: ShapeTypes.face, normal: () => [XYZ.zero, XYZ.unitZ] };
             seedStepDatas(cmd, [
-                shapeStepResult([{ shape: sectionShape, point: XYZ.zero }]),
-                {
-                    type: "shape" as const,
-                    shapes: [shapeData({ shape: axisEdge, point: XYZ.zero })],
-                } as any,
+                shapeStepResult([
+                    { shape: sectionShape, node: mockOwner("sect-1", ShapeTypes.face), point: XYZ.zero },
+                ]),
+                axisStepData(),
             ]);
 
             const node = (cmd as any).geometryNode();
             expect(node.angle).toBe(90);
+        });
+
+        test("should reference the sub-shape's type and index when the section is a face of an existing solid", () => {
+            const cmd = new Revolve();
+            wireCommand(cmd);
+            // shapeStepResult wraps the picked shape through mockShape(), which
+            // copies the given properties onto a fresh object - so isEqual can't
+            // rely on reference equality to the original candidate object here,
+            // it has to compare a marker property that survives the copy.
+            const otherFace = { shapeType: ShapeTypes.face, isEqual: () => false };
+            const targetFace = {
+                shapeType: ShapeTypes.face,
+                isEqual: (o: { marker?: string }) => o.marker === "picked",
+            };
+            const owner = mockOwner("solid-1", ShapeTypes.solid, (type) =>
+                type === ShapeTypes.face
+                    ? [
+                          otherFace as unknown as IShape,
+                          otherFace as unknown as IShape,
+                          targetFace as unknown as IShape,
+                      ]
+                    : [],
+            );
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    {
+                        shape: {
+                            shapeType: ShapeTypes.face,
+                            normal: () => [XYZ.zero, XYZ.unitZ],
+                            marker: "picked",
+                        } as any,
+                        node: owner,
+                        point: XYZ.zero,
+                    },
+                ]),
+                axisStepData(),
+            ]);
+
+            const node = (cmd as any).geometryNode();
+            expect(node.sectionNodeId).toBe("solid-1");
+            expect(node.sectionShapeType).toBe(ShapeTypes.face);
+            expect(node.sectionIndex).toBe(2);
+        });
+    });
+
+    describe("afterNodeCreated", () => {
+        test("should hide, not delete, the whole-shape section and axis source nodes when deleteObjects is true", () => {
+            const cmd = new Revolve();
+            const { doc } = wireCommand(cmd);
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const sectionNode = liveSectionNode(doc, ShapeTypes.wire);
+            sectionNode.parent = parent;
+            const axisNode = liveSectionNode(doc, ShapeTypes.edge);
+            axisNode.parent = parent;
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: sectionNode }]),
+                axisStepData({ node: axisNode }),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(sectionNode.visible).toBe(false);
+            expect(axisNode.visible).toBe(false);
+            expect(parent.removed).toHaveLength(0);
+        });
+
+        test("should leave the source nodes untouched when deleteObjects is false", () => {
+            const cmd = new Revolve();
+            cmd.deleteObjects = false;
+            const { doc } = wireCommand(cmd);
+            const sectionNode = liveSectionNode(doc, ShapeTypes.wire);
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: sectionNode }]),
+                axisStepData(),
+            ]);
+
+            (cmd as any).afterNodeCreated();
+
+            expect(sectionNode.visible).toBe(true);
+        });
+
+        test("should splice a downstream feature onto the new Revolve when the section already has one", () => {
+            const originalFactory = (globalThis as any).app.shapeProvider.factory;
+            Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                configurable: true,
+                value: new Proxy({}, { get: () => () => Result.ok(mockShape()) }),
+            });
+
+            try {
+                const cmd = new Revolve();
+                const { doc } = wireCommand(cmd);
+                const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+                const sectionNode = liveSectionNode(doc, ShapeTypes.wire);
+                sectionNode.parent = parent;
+                // RevolvedNode.generateShape needs isClosed() on a wire section.
+                Object.assign(sectionNode.shape.value, { isClosed: () => false });
+
+                const downstream = new RevolvedNode({
+                    document: doc,
+                    sectionNodeId: sectionNode.id,
+                    axis: { point: XYZ.zero, direction: XYZ.unitZ } as any,
+                    angle: 360,
+                });
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    [sectionNode, downstream].find(predicate);
+                expect(downstream.shape.isOk).toBe(true); // establishes the sectionNode -> downstream DAG edge
+
+                seedStepDatas(cmd, [
+                    shapeStepResult([{ shape: { shapeType: ShapeTypes.wire }, node: sectionNode }]),
+                    axisStepData(),
+                ]);
+
+                const newRevolve = (cmd as any).geometryNode();
+                parent.add(newRevolve);
+                (cmd as any).afterNodeCreated();
+
+                expect(downstream.sectionNodeId).toBe(newRevolve.id);
+                // newRevolve is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newRevolve.visible).toBe(false);
+            } finally {
+                Object.defineProperty((globalThis as any).app.shapeProvider, "factory", {
+                    configurable: true,
+                    value: originalFactory,
+                });
+            }
+        });
+    });
+
+    describe("repositionAfterSection", () => {
+        test("should move the new Revolve to sit right after its section node in the tree", () => {
+            const cmd = new Revolve();
+            const { doc } = wireCommand(cmd);
+            const sectionParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const sectionNode = liveSectionNode(doc, ShapeTypes.face);
+            sectionNode.parent = sectionParent;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                [sectionNode].find(predicate);
+
+            seedStepDatas(cmd, [
+                shapeStepResult([{ shape: { shapeType: ShapeTypes.face }, node: sectionNode }]),
+                axisStepData(),
+            ]);
+
+            const newRevolve = (cmd as any).geometryNode();
+            const revolveParent = doc.modelManager.rootNode as unknown as TrackingParent;
+            newRevolve.parent = revolveParent;
+
+            const moveSpy = rs.spyOn(revolveParent, "move");
+            (cmd as any).afterNodeCreated();
+
+            expect(moveSpy).toHaveBeenCalledWith(newRevolve, sectionParent, sectionNode);
+        });
+
+        test("should do nothing when the section node cannot be found", () => {
+            const cmd = new Revolve();
+            const { doc } = wireCommand(cmd);
+            (doc.modelManager as any).findNode = () => undefined;
+
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    { shape: { shapeType: ShapeTypes.face }, node: mockOwner("missing", ShapeTypes.face) },
+                ]),
+                axisStepData(),
+            ]);
+
+            const newRevolve = (cmd as any).geometryNode();
+            newRevolve.parent = doc.modelManager.rootNode;
+
+            expect(() => (cmd as any).afterNodeCreated()).not.toThrow();
         });
     });
 

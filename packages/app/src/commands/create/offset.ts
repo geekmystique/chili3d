@@ -4,9 +4,7 @@
 import {
     Combobox,
     command,
-    EditableShapeNode,
     GeometryUtils,
-    I18n,
     type I18nKeys,
     type IEdge,
     type IFace,
@@ -17,13 +15,17 @@ import {
     LengthAtAxisStep,
     MathUtils,
     MultistepCommand,
+    PubSub,
     property,
     SelectShapeStep,
     type ShapeMeshData,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
     type XYZ,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
+import { OffsetNode } from "../../bodys/offset";
 
 @command({
     key: "create.offset",
@@ -47,14 +49,40 @@ export class OffsetCommand extends MultistepCommand {
     protected override executeMainTask() {
         const ax = this.getAxis();
         const distance = this.stepDatas[1].point!.sub(ax.point).dot(ax.direction);
-        const shape = this.createOffsetShape(ax.normal, distance!);
-        const node = new EditableShapeNode({
+
+        const pick = this.stepDatas[0].shapes[0];
+        const { shapeType, index } = sectionRefFromPick(pick.owner.node as ShapeNode, pick.shape);
+        const node = new OffsetNode({
             document: this.document,
-            name: I18n.translate("command.create.offset"),
-            shape: shape.value,
+            sectionNodeId: (pick.owner.node as ShapeNode).id,
+            sectionShapeType: shapeType,
+            sectionIndex: index,
+            distance,
+            normal: ax.normal,
+            joinType: this.mapJoinType(),
         });
+
+        if (!node.shape.isOk) {
+            PubSub.default.pub("showToast", "error.default:{0}", node.shape.error);
+            node.dispose();
+            return;
+        }
+
         this.document.modelManager.rootNode.add(node);
+        this.repositionAfterSection(node);
         this.document.visual.update();
+    }
+
+    /**
+     * The new Offset was appended to the tree root - move it to sit right
+     * after its section node instead, so it lands at its logical spot in the
+     * tree/timeline rather than always at the end, matching Extrude/Revolve.
+     */
+    private repositionAfterSection(node: OffsetNode): void {
+        if (!node.parent) return;
+        const section = this.document.modelManager.findNode((n) => n.id === node.sectionNodeId);
+        if (!section?.parent) return;
+        node.parent.move(node, section.parent, section);
     }
 
     protected override getSteps(): IStep[] {

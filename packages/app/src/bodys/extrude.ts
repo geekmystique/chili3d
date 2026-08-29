@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     GeometryUtils,
     type I18nKeys,
     type IDocument,
@@ -9,17 +10,26 @@ import {
     type IFace,
     type IShape,
     type IWire,
-    ParameterShapeNode,
     property,
+    ReferenceShapeNode,
     Result,
+    type ShapeType,
     ShapeTypes,
     serializable,
     serialize,
 } from "@chili3d/core";
+import { resolveSweepRefShape, type SweepRef } from "./sweep";
 
-export interface PrismOptions {
+export interface ExtrudeOptions {
     document: IDocument;
-    section: IShape;
+    sectionNodeId: string;
+    /**
+     * Present together with sectionIndex only when the picked section is a
+     * sub-shape of the base node's own shape (e.g. a face of an existing
+     * solid) rather than the base node's entire shape.
+     */
+    sectionShapeType?: ShapeType;
+    sectionIndex?: number;
     length: number;
 }
 
@@ -36,18 +46,36 @@ export function closedProfileToFace(section: IShape): Result<IFace> {
     return shapeFactory.face([wire.value]);
 }
 
+/**
+ * Holds a reference to the base node id (and, for a sub-shape section such
+ * as a face of an existing solid, the sub-shape's type + index within it)
+ * rather than a baked section shape. Editing the base node's own parameters
+ * recomputes this node. The base node is hidden, not deleted, by
+ * ExtrudeCommand, so the reference keeps resolving.
+ */
 @serializable()
-export class ExtrudeNode extends ParameterShapeNode {
+export class ExtrudeNode extends ReferenceShapeNode {
     override display(): I18nKeys {
         return "body.extrude";
     }
 
-    @serialize()
-    get section(): IShape {
-        return this.getPrivateValue("section");
+    override get editCommandKey(): CommandKeys {
+        return "modify.extrudeEdit";
     }
-    set section(value: IShape) {
-        this.setPropertyEmitShapeChanged("section", value);
+
+    @serialize()
+    get sectionNodeId(): string {
+        return this.getPrivateValue("sectionNodeId");
+    }
+
+    @serialize()
+    get sectionShapeType(): ShapeType | undefined {
+        return this.getPrivateValue("sectionShapeType");
+    }
+
+    @serialize()
+    get sectionIndex(): number | undefined {
+        return this.getPrivateValue("sectionIndex");
     }
 
     @serialize()
@@ -59,29 +87,80 @@ export class ExtrudeNode extends ParameterShapeNode {
         this.setPropertyEmitShapeChanged("length", value);
     }
 
-    constructor(options: PrismOptions) {
-        super({ document: options.document });
-        this.setPrivateValue("section", options.section);
+    constructor(options: ExtrudeOptions) {
+        super(options);
+        this.setPrivateValue("sectionNodeId", options.sectionNodeId);
+        this.setPrivateValue("sectionShapeType", options.sectionShapeType);
+        this.setPrivateValue("sectionIndex", options.sectionIndex);
         this.setPrivateValue("length", options.length);
     }
 
+    override redirectReference(oldId: string, newId: string): boolean {
+        if (this.sectionNodeId !== oldId) return false;
+        this.setProperty("sectionNodeId", newId);
+        this.setShape(this.generateShape());
+        return true;
+    }
+
+    /**
+     * Re-point this feature at a new section (and/or sub-shape within it)
+     * and/or length, and recompute once. Used by the "re-pick" edit flow to
+     * redirect an existing feature without deleting and recreating it (which
+     * would break anything downstream that references it).
+     */
+    updateSection(
+        nodeId: string,
+        shapeType: ShapeType | undefined,
+        index: number | undefined,
+        length: number,
+    ) {
+        this.setProperty("sectionNodeId", nodeId);
+        this.setProperty("sectionShapeType", shapeType);
+        this.setProperty("sectionIndex", index);
+        this.setProperty("length", length);
+        this.setShape(this.generateShape());
+    }
+
+    override get primaryInputId(): string | undefined {
+        return this.sectionNodeId;
+    }
+
     override generateShape(): Result<IShape> {
-        const normal = GeometryUtils.normal(this.section as any);
+        const base = this.resolveInput(this.sectionNodeId);
+        if (!base) return Result.err(`Extrude: section shape "${this.sectionNodeId}" no longer exists`);
+        if (!base.shape.isOk) return Result.err(base.shape.error);
+
+        this.subscribeTo([base]);
+
+        const ref: SweepRef = {
+            nodeId: this.sectionNodeId,
+            shapeType: this.sectionShapeType ?? ShapeTypes.shape,
+            index: this.sectionIndex ?? -1,
+        };
+        const sectionResult = resolveSweepRefShape(
+            base.shape.value.transformedMul(base.transform),
+            ref,
+            "Extrude",
+        );
+        if (!sectionResult.isOk) return sectionResult;
+        const section = sectionResult.value;
+
+        const normal = GeometryUtils.normal(section as any);
         const vec = normal.multiply(this.length);
-        if (this.section.shapeType === ShapeTypes.face) {
-            const sur = (this.section as IFace).surface();
+        if (section.shapeType === ShapeTypes.face) {
+            const sur = (section as IFace).surface();
             if (!sur.isPlanar()) {
-                return shapeFactory.makeThickSolidBySimple(this.section, this.length);
+                return shapeFactory.makeThickSolidBySimple(section, this.length);
             }
         } else if (
-            (this.section.shapeType === ShapeTypes.wire || this.section.shapeType === ShapeTypes.edge) &&
-            this.section.isClosed()
+            (section.shapeType === ShapeTypes.wire || section.shapeType === ShapeTypes.edge) &&
+            section.isClosed()
         ) {
             // Extruding a closed profile (wire or circle edge) as a face produces a solid instead of a shell.
-            const face = closedProfileToFace(this.section);
+            const face = closedProfileToFace(section);
             if (!face.isOk) return Result.err(face.error);
             return shapeFactory.prism(face.value, vec);
         }
-        return shapeFactory.prism(this.section, vec);
+        return shapeFactory.prism(section, vec);
     }
 }

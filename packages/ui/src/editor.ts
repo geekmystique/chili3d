@@ -18,6 +18,7 @@ import { MaterialDataContent, MaterialEditor } from "./property/material";
 import { RibbonUI } from "./ribbon";
 import { CommandContext } from "./ribbon/commandContext";
 import { Statusbar } from "./statusbar";
+import { Timeline } from "./timeline";
 import { LayoutViewport } from "./viewport";
 
 export class Editor extends HTMLElement {
@@ -35,7 +36,11 @@ export class Editor extends HTMLElement {
         super();
         const viewport = new LayoutViewport(app);
         viewport.classList.add(style.viewport);
-        this._viewportContainer = div({ className: style.viewportContainer }, viewport);
+        this._viewportContainer = div(
+            { className: style.viewportContainer },
+            viewport,
+            new Timeline({ className: style.timeline }),
+        );
         this.render();
     }
 

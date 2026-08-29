@@ -3,14 +3,16 @@
 
 import {
     command,
-    EditableShapeNode,
-    I18n,
     type IStep,
     MultistepCommand,
+    PubSub,
     SelectShapeStep,
+    type ShapeNode,
     ShapeTypes,
+    Transaction,
     VisualStates,
 } from "@chili3d/core";
+import { SectionNode, sweepRefFromPick } from "../../bodys";
 
 @command({
     key: "create.section",
@@ -18,16 +20,46 @@ import {
 })
 export class Section extends MultistepCommand {
     protected override executeMainTask() {
-        const shape = this.transformdFirstShape(this.stepDatas[0]);
-        const path = this.transformdFirstShape(this.stepDatas[1]);
-        const section = shape.section(path);
-        const node = new EditableShapeNode({
-            document: this.document,
-            name: I18n.translate("command.create.section"),
-            shape: section,
+        Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
+            const shapePick = this.stepDatas[0].shapes[0];
+            const pathPick = this.stepDatas[1].shapes[0];
+            const shapeRef = sweepRefFromPick(shapePick.owner.node as ShapeNode, shapePick.shape);
+            const pathRef = sweepRefFromPick(pathPick.owner.node as ShapeNode, pathPick.shape);
+
+            const node = new SectionNode({
+                document: this.document,
+                shapeNodeId: shapeRef.nodeId,
+                shapeShapeType: shapeRef.shapeType,
+                shapeIndex: shapeRef.index,
+                pathNodeId: pathRef.nodeId,
+                pathShapeType: pathRef.shapeType,
+                pathIndex: pathRef.index,
+            });
+
+            if (!node.shape.isOk) {
+                PubSub.default.pub("showToast", "error.default:{0}", node.shape.error);
+                node.dispose();
+                return;
+            }
+
+            this.document.modelManager.rootNode.add(node);
+            this.repositionAfterShape(node);
+            this.document.visual.update();
+            PubSub.default.pub("showToast", "toast.success");
         });
-        this.document.modelManager.rootNode.add(node);
-        this.document.visual.update();
+    }
+
+    /**
+     * The new Section was appended to the tree root - move it to sit right
+     * after its shape node (SectionNode's primaryInputId) instead, so it
+     * lands at its logical spot in the tree/timeline rather than always at
+     * the end, matching Extrude/Revolve/Sweep.
+     */
+    private repositionAfterShape(node: SectionNode): void {
+        if (!node.parent) return;
+        const shape = this.document.modelManager.findNode((n) => n.id === node.shapeNodeId);
+        if (!shape?.parent) return;
+        node.parent.move(node, shape.parent, shape);
     }
 
     protected override getSteps(): IStep[] {

@@ -58,6 +58,13 @@ function rootChildren(doc: IDocument) {
     return (doc.modelManager.rootNode as any).children() as unknown[];
 }
 
+/** The single visible WireNode among root's children - the current end-of-chain result. */
+function visibleWire(doc: IDocument): WireNode {
+    const wires = rootChildren(doc).filter((x): x is WireNode => x instanceof WireNode && x.visible);
+    expect(wires).toHaveLength(1);
+    return wires[0];
+}
+
 describe("ConvertToWire undo then redo conversion (real wasm)", () => {
     test("convert two edges to wire, undo, convert again", async () => {
         const doc = createDocument();
@@ -68,22 +75,27 @@ describe("ConvertToWire undo then redo conversion (real wasm)", () => {
         doc.selection.setSelectedNodes([n1, n2], false);
         await runConvertToWire(doc);
 
+        // n1/n2 are hidden, not deleted - the new WireNode keeps a live reference to them.
         let children = rootChildren(doc);
-        expect(children.length).toBe(1);
-        expect(children[0]).toBeInstanceOf(WireNode);
+        expect(children.length).toBe(3);
+        expect(n1.visible).toBe(false);
+        expect(n2.visible).toBe(false);
+        expect(visibleWire(doc)).toBeDefined();
 
         doc.history.undo();
         children = rootChildren(doc);
         expect(children.length).toBe(2);
+        expect(n1.visible).toBe(true);
+        expect(n2.visible).toBe(true);
 
         doc.selection.setSelectedNodes([n1, n2], false);
         await runConvertToWire(doc);
 
         children = rootChildren(doc);
-        expect(children.length).toBe(1);
-        expect(children[0]).toBeInstanceOf(WireNode);
-        expect((children[0] as WireNode).shape.isOk).toBe(true);
-        expect((children[0] as WireNode).shape.value.shapeType).toBe(ShapeTypes.wire);
+        expect(children.length).toBe(3);
+        const wire = visibleWire(doc);
+        expect(wire.shape.isOk).toBe(true);
+        expect(wire.shape.value.shapeType).toBe(ShapeTypes.wire);
     });
 
     test("convert wire+edge, undo, convert again", async () => {
@@ -93,33 +105,37 @@ describe("ConvertToWire undo then redo conversion (real wasm)", () => {
         const n3 = lineNode(doc, "l3", 10, 10, 20, 10);
         doc.modelManager.rootNode.add(n1, n2, n3);
 
-        // l1 + l2 -> W12
+        // l1 + l2 -> W12 (n1, n2 hidden; n3 and W12 stay/become visible)
         doc.selection.setSelectedNodes([n1, n2], false);
         await runConvertToWire(doc);
         let children = rootChildren(doc);
-        expect(children.length).toBe(2);
-        const w12 = children.find((x) => x instanceof WireNode) as WireNode;
-        expect(w12).toBeDefined();
+        expect(children.length).toBe(4);
+        const w12 = visibleWire(doc);
 
-        // W12 + l3 -> W123
+        // W12 + l3 -> W123 (w12, n3 hidden; W123 alone stays visible)
         doc.selection.setSelectedNodes([w12, n3], false);
         await runConvertToWire(doc);
         children = rootChildren(doc);
-        expect(children.length).toBe(1);
-        expect(children[0]).toBeInstanceOf(WireNode);
+        expect(children.length).toBe(5);
+        expect(w12.visible).toBe(false);
+        expect(n3.visible).toBe(false);
+        expect(visibleWire(doc)).toBeDefined();
 
-        // undo -> W12 and l3 restored
+        // undo -> w12 and l3 restored to visible, W123 removed
         doc.history.undo();
         children = rootChildren(doc);
-        expect(children.length).toBe(2);
+        expect(children.length).toBe(4);
+        expect(w12.visible).toBe(true);
+        expect(n3.visible).toBe(true);
+        expect(visibleWire(doc)).toBe(w12);
 
         // W12 + l3 -> W123 again
         doc.selection.setSelectedNodes([w12, n3], false);
         await runConvertToWire(doc);
         children = rootChildren(doc);
-        expect(children.length).toBe(1);
-        expect(children[0]).toBeInstanceOf(WireNode);
-        const w123 = children[0] as WireNode;
+        expect(children.length).toBe(5);
+        const w123 = visibleWire(doc);
+        expect(w123).not.toBe(w12);
         expect(w123.shape.isOk).toBe(true);
         expect(w123.shape.value.findSubShapes(ShapeTypes.edge).length).toBe(3);
     });

@@ -5,22 +5,14 @@ import {
     command,
     EditableShapeNode,
     GetOrSelectNodeStep,
-    type IShape,
     MultistepCommand,
     property,
     ShapeNode,
     Transaction,
 } from "@chili3d/core";
+import { repairShape } from "../../bodys/shapeUtils";
 
-export function repairShape(shape: IShape, tolerance: number) {
-    const getShapeIfNotNull = (testShape: IShape, defaultShape: IShape) => {
-        return testShape.isNull() ? defaultShape : testShape;
-    };
-    let repairedShape = getShapeIfNotNull(shape.shellSewing(tolerance), shape);
-    repairedShape = getShapeIfNotNull(repairedShape.fixShape(tolerance), repairedShape);
-    repairedShape = getShapeIfNotNull(repairedShape.fixSmallFace(tolerance), repairedShape);
-    return repairedShape;
-}
+export { repairShape };
 
 @command({
     key: "modify.repairShape",

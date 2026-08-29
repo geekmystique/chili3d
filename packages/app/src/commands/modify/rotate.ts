@@ -15,6 +15,7 @@ import {
     type SnapLengthAtPlaneData,
     type XYZ,
 } from "@chili3d/core";
+import type { PlacementKind } from "../../bodys/placement";
 import { TransformedCommand } from "./transformedCommand";
 
 @command({
@@ -22,6 +23,10 @@ import { TransformedCommand } from "./transformedCommand";
     icon: "icon-rotate",
 })
 export class Rotate extends TransformedCommand {
+    protected override get placementKind(): PlacementKind {
+        return "rotate";
+    }
+
     protected override transfrom(point: XYZ): Matrix4 {
         const normal = this.stepDatas[1].plane!.normal;
         const center = this.stepDatas[0].point!;

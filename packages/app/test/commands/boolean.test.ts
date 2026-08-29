@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    EditableShapeNode,
     type IShape,
     type IShapeFactory,
     type IStep,
@@ -17,6 +18,7 @@ import {
 } from "@chili3d/core";
 import { describe, expect, rs, test } from "@rstest/core";
 import { BooleanNode } from "../../src/bodys/boolean";
+import { EdgeCornerNode } from "../../src/bodys/edgeCorner";
 import { BooleanCommon, BooleanCut, BooleanFuse } from "../../src/commands/boolean";
 import {
     ensureGlobalStubApp,
@@ -86,6 +88,19 @@ function visShape(s: IShape, parent = makeParent()): VisualShapeData {
             },
         },
     } as unknown as VisualShapeData;
+}
+
+/**
+ * Build a base + tool EditableShapeNode pair and wire `doc.modelManager.findNode`
+ * to resolve them, so BooleanNode.generateShape() (which looks nodes up by id)
+ * can find them the same way it would against a real document.
+ */
+function installInputNodes(doc: ReturnType<typeof wireCommand>["doc"]) {
+    const baseNode = new EditableShapeNode({ document: doc, name: "base", shape: shapeWithTolerance() });
+    const toolNode = new EditableShapeNode({ document: doc, name: "tool", shape: shapeWithTolerance() });
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+        [baseNode, toolNode].find(predicate);
+    return { baseNode, toolNode };
 }
 
 const VIEW_STUB = {
@@ -205,19 +220,18 @@ describe("BooleanOperate (via BooleanCommon)", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should create BooleanNode and add to document on success", () => {
+        test("should create a reference-based BooleanNode and add it to the document", () => {
             const restoreApp = ensureGlobalStubApp();
             const restoreTx = stubTransactionRun();
             const { restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
             try {
                 const cmd = new BooleanCommon();
                 const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
 
-                const parent0 = makeParent({ id: "parent0" });
-                const parent1 = makeParent({ id: "parent1" });
                 seedStepDatas(cmd, [
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), parent0)], nodes: [] },
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), parent1)], nodes: [] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
                 ]);
 
                 (cmd as any).executeMainTask();
@@ -225,7 +239,41 @@ describe("BooleanOperate (via BooleanCommon)", () => {
                 // executeMainTask adds the new node via document.modelManager.rootNode.add(...)
                 const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
                 expect(rootNode.added).toHaveLength(1);
-                expect(rootNode.added[0]).toBeInstanceOf(BooleanNode);
+                const node = rootNode.added[0] as BooleanNode;
+                expect(node).toBeInstanceOf(BooleanNode);
+                expect(node.baseNodeId).toBe(baseNode.id);
+                expect(node.toolNodeIds).toEqual([toolNode.id]);
+            } finally {
+                restoreFactory();
+                restoreTx();
+                restoreApp();
+            }
+        });
+
+        test("should insert the new node right after the last tool node when both are direct children of rootNode", () => {
+            const restoreApp = ensureGlobalStubApp();
+            const restoreTx = stubTransactionRun();
+            const { restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
+            try {
+                const cmd = new BooleanCommon();
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                baseNode.parent = rootNode as any;
+                toolNode.parent = rootNode as any;
+
+                seedStepDatas(cmd, [
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
+                ]);
+
+                (cmd as any).executeMainTask();
+
+                expect(rootNode.added).toHaveLength(0);
+                expect(rootNode.insertedAfter).toHaveLength(1);
+                const { target, node } = rootNode.insertedAfter[0] as any;
+                expect(target).toBe(toolNode);
+                expect(node).toBeInstanceOf(BooleanNode);
             } finally {
                 restoreFactory();
                 restoreTx();
@@ -240,16 +288,21 @@ describe("BooleanOperate (via BooleanCommon)", () => {
             const pubSpy = rs.spyOn(PubSub.default, "pub").mockImplementation(() => {});
             try {
                 const cmd = new BooleanCommon();
-                wireCommand(cmd);
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
 
-                const parent0 = makeParent({ id: "parent0" });
                 seedStepDatas(cmd, [
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), parent0)], nodes: [] },
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), makeParent())], nodes: [] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
                 ]);
 
                 (cmd as any).executeMainTask();
                 expect(pubSpy).toHaveBeenCalledWith("showToast", "error.default:{0}", "boolean failed");
+
+                // A failed node is never added, and the source nodes stay visible.
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                expect(rootNode.added).toHaveLength(0);
+                expect(baseNode.visible).toBe(true);
             } finally {
                 pubSpy.mockRestore();
                 restoreFactory();
@@ -258,7 +311,79 @@ describe("BooleanOperate (via BooleanCommon)", () => {
             }
         });
 
-        test("should keep tools when keepTools is true", () => {
+        test("should hide (not delete) the consumed nodes on success", () => {
+            const restoreApp = ensureGlobalStubApp();
+            const restoreTx = stubTransactionRun();
+            const { restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
+            try {
+                const cmd = new BooleanCommon();
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
+
+                seedStepDatas(cmd, [
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
+                ]);
+
+                (cmd as any).executeMainTask();
+
+                // hidden, not removed from the tree - the boolean node still references them
+                expect(baseNode.visible).toBe(false);
+                expect(toolNode.visible).toBe(false);
+                expect(baseNode.parent).toBeUndefined();
+                expect(toolNode.parent).toBeUndefined();
+            } finally {
+                restoreFactory();
+                restoreTx();
+                restoreApp();
+            }
+        });
+
+        test("should splice a downstream feature onto the new BooleanNode when the base already has one", () => {
+            const restoreApp = ensureGlobalStubApp();
+            const restoreTx = stubTransactionRun();
+            const { factory, restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
+            (factory as unknown as { fillet: () => Result<IShape> }).fillet = () =>
+                Result.ok(shapeWithTolerance());
+            try {
+                const cmd = new BooleanCommon();
+                const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
+
+                // downstream already references baseNode directly (e.g. a fillet
+                // applied earlier to the same body).
+                const downstream = new EdgeCornerNode({
+                    document: doc,
+                    operateType: "fillet",
+                    baseNodeId: baseNode.id,
+                    edgeIndexes: [0],
+                    value: 1,
+                });
+                const findInputNodes = (doc.modelManager as any).findNode;
+                (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                    findInputNodes(predicate) ?? [downstream].find(predicate);
+                expect(downstream.shape.isOk).toBe(true); // establishes the baseNode -> downstream DAG edge
+
+                seedStepDatas(cmd, [
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
+                ]);
+
+                (cmd as any).executeMainTask();
+
+                const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
+                const newBoolean = rootNode.added[0] as BooleanNode;
+                expect(downstream.baseNodeId).toBe(newBoolean.id);
+                // newBoolean is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newBoolean.visible).toBe(false);
+            } finally {
+                restoreFactory();
+                restoreTx();
+                restoreApp();
+            }
+        });
+
+        test("should keep tools visible when keepTools is true", () => {
             const restoreApp = ensureGlobalStubApp();
             const restoreTx = stubTransactionRun();
             const { restore: restoreFactory } = installShapeFactory(Result.ok(shapeWithTolerance()));
@@ -266,14 +391,11 @@ describe("BooleanOperate (via BooleanCommon)", () => {
                 const cmd = new BooleanCommon();
                 cmd.keepTools = true;
                 const { doc } = wireCommand(cmd);
+                const { baseNode, toolNode } = installInputNodes(doc);
 
-                const parent0 = makeParent({ id: "parent0" });
-                const parent1 = makeParent({ id: "parent1" });
-                const baseNode = { parent: parent0 } as any;
-                const toolNode = { parent: parent1 } as any;
                 seedStepDatas(cmd, [
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), parent0)], nodes: [baseNode] },
-                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance(), parent1)], nodes: [toolNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [baseNode] },
+                    { ...VIEW_STUB, shapes: [visShape(shapeWithTolerance())], nodes: [toolNode] },
                 ]);
 
                 (cmd as any).executeMainTask();
@@ -281,9 +403,9 @@ describe("BooleanOperate (via BooleanCommon)", () => {
                 const rootNode = doc.modelManager.rootNode as unknown as TrackingParent;
                 expect(rootNode.added).toHaveLength(1);
                 expect(rootNode.added[0]).toBeInstanceOf(BooleanNode);
-                // keepTools removes only the first selection; tool nodes are kept
-                expect(parent0.removed).toEqual([baseNode]);
-                expect(parent1.removed).toEqual([]);
+                // keepTools hides only the base node; tool nodes stay visible
+                expect(baseNode.visible).toBe(false);
+                expect(toolNode.visible).toBe(true);
             } finally {
                 restoreFactory();
                 restoreTx();

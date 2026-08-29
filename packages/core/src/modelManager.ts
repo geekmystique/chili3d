@@ -12,6 +12,7 @@ import {
 } from "./foundation";
 import type { Material } from "./material";
 import type { Component } from "./model/component";
+import { DependencyGraph } from "./model/dependencyGraph";
 import { FolderNode } from "./model/folderNode";
 import { type INode, type INodeLinkedList, NodeUtils } from "./model/node";
 import { type Serialized, Serializer } from "./serialize";
@@ -20,9 +21,17 @@ export type OnNodeChanged = (records: NodeRecord[]) => void;
 
 export class ModelManager extends Observable {
     private readonly _nodeChangedObservers = new Set<OnNodeChanged>();
+    /**
+     * When set, notifyNodeChanged collects into this array instead of telling
+     * observers - see deserialize(), which uses this to hold off every "add"
+     * notification generated while rebuilding the tree until the whole tree
+     * (and rootNode) actually exists.
+     */
+    private batchedRecords?: NodeRecord[];
 
     readonly components: ObservableCollection<Component> = new ObservableCollection();
     readonly materials: ObservableCollection<Material> = new ObservableCollection();
+    readonly dependencyGraph = new DependencyGraph();
 
     private _rootNode: INodeLinkedList | undefined;
     get rootNode(): INodeLinkedList {
@@ -73,6 +82,10 @@ export class ModelManager extends Observable {
 
     notifyNodeChanged(records: NodeRecord[]) {
         Transaction.add(this.document, new NodeLinkedListHistoryRecord(records));
+        if (this.batchedRecords) {
+            this.batchedRecords.push(...records);
+            return;
+        }
         this._nodeChangedObservers.forEach((x) => {
             x(records);
         });
@@ -111,8 +124,37 @@ export class ModelManager extends Observable {
             ...data.materials.map((x: Serialized) => Serializer.deserializeObject(this.document, x)),
         );
 
-        const rootNode = await NodeUtils.deserializeNode(this.document, data.nodes);
-        this.rootNode = rootNode!;
+        // Rebuilding the tree fires an "add" notification per node (add() calls
+        // notifyNodeChanged unconditionally) - observers like the 3D view react
+        // by reading each node's mesh/shape right away, which for a
+        // ReferenceShapeNode is that node's first-ever shape computation. That
+        // resolves other nodes by id through this.rootNode, which isn't
+        // assigned until this method returns, so every such lookup fails while
+        // the tree is still being rebuilt - and since the lazy shape getter
+        // only ever computes once, that failure is permanent, even after the
+        // referenced node exists moments later. Collect every notification
+        // instead of delivering it immediately, and fire them all as one batch
+        // only once the whole tree (and rootNode) actually exists, so every
+        // reference is resolvable by the time anything reads it.
+        this.batchedRecords = [];
+        try {
+            const rootNode = await NodeUtils.deserializeNode(this.document, data.nodes);
+            this.rootNode = rootNode!;
+        } finally {
+            // Unconditionally, even if deserializeNode threw partway through (a
+            // malformed file, say) - notifyNodeChanged treats a defined
+            // batchedRecords as "still batching" and swallows every call rather
+            // than delivering it, so leaving this set on a thrown error would
+            // silently blackhole every future node-changed notification (tree,
+            // timeline, 3D view) for the rest of the session, not just this load.
+            const records = this.batchedRecords;
+            this.batchedRecords = undefined;
+            if (records && records.length > 0) {
+                this._nodeChangedObservers.forEach((x) => {
+                    x(records);
+                });
+            }
+        }
     }
 
     override disposeInternal(): void {

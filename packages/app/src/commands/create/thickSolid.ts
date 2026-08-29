@@ -3,16 +3,17 @@
 
 import {
     command,
-    EditableShapeNode,
-    I18n,
     type IStep,
     MultistepCommand,
     PubSub,
     property,
     SelectShapeStep,
+    type ShapeNode,
     ShapeTypes,
     Transaction,
 } from "@chili3d/core";
+import { sectionRefFromPick } from "../../bodys";
+import { ThickSolidNode } from "../../bodys/thickSolid";
 
 @command({
     key: "create.thickSolid",
@@ -30,20 +31,23 @@ export class ThickSolidCommand extends MultistepCommand {
     protected override executeMainTask(): void {
         Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
             this.stepDatas[0].shapes.forEach((x) => {
-                const subShape = shapeFactory.makeThickSolidBySimple(x.shape, this.thickness);
-                if (!subShape.isOk) {
-                    PubSub.default.pub("showToast", "toast.converter.error");
-                    return;
-                }
-                const model = new EditableShapeNode({
+                const { shapeType, index } = sectionRefFromPick(x.owner.node as ShapeNode, x.shape);
+                const node = new ThickSolidNode({
                     document: this.document,
-                    name: I18n.translate("command.create.thickSolid"),
-                    shape: subShape,
+                    sectionNodeId: (x.owner.node as ShapeNode).id,
+                    sectionShapeType: shapeType,
+                    sectionIndex: index,
+                    thickness: this.thickness,
                 });
 
-                const node = x.owner.node;
-                model.transform = node.transform;
-                node.parent!.insertAfter(node, model);
+                if (!node.shape.isOk) {
+                    PubSub.default.pub("showToast", "toast.converter.error");
+                    node.dispose();
+                    return;
+                }
+
+                const sourceNode = x.owner.node;
+                sourceNode.parent!.insertAfter(sourceNode, node);
             });
             this.document.visual.update();
             PubSub.default.pub("showToast", "toast.success");

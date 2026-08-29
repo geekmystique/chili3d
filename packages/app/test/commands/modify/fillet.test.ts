@@ -1,8 +1,20 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Matrix4, PubSub, Result, type ShapeType, ShapeTypes } from "@chili3d/core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Matrix4,
+    PubSub,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+    SnapEventHandler,
+    XYZ,
+} from "@chili3d/core";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, rs, test } from "@rstest/core";
+import { EdgeCornerNode } from "../../../src/bodys/edgeCorner";
 import { FilletCommand } from "../../../src/commands/modify/fillet";
 import {
     ensureGlobalStubApp,
@@ -27,23 +39,26 @@ afterAll(() => restoreApp());
  * is a ShapeNode-ish stub. Returns the command plus the node's tracking parent
  * so callers can assert what was added / removed from the document tree.
  */
-function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType } = {}) {
+function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType; liveNode?: boolean } = {}) {
     const cmd = new FilletCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-    const solidNode = {
-        name: "solid0",
-        document: doc,
-        shape: { value: shape },
-        transform: Matrix4.identity(),
-        materialId: "mat-1",
-        parent,
-        previousSibling: undefined,
-        nextSibling: undefined,
-    };
+    const solidNode: any = opts.liveNode
+        ? liveSolidNode(doc, shape as unknown as IShape, parent)
+        : {
+              name: "solid0",
+              document: doc,
+              shape: { value: shape },
+              transform: Matrix4.identity(),
+              materialId: "mat-1",
+              parent,
+              previousSibling: undefined,
+              nextSibling: undefined,
+          };
 
     const step = shapeStepResult(
         edges.map((index) => ({ shape: { index, parent: body } as Partial<MockShape>, node: solidNode })),
@@ -51,6 +66,19 @@ function buildFilletCommand(edges: number[], opts: { bodyType?: ShapeType } = {}
 
     seedStepDatas(cmd, [step]);
     return { cmd, doc, parent, shape, body, solidNode };
+}
+
+/**
+ * A real EditableShapeNode standing in for the fillet target on the 3D-body
+ * path: EdgeCornerNode is a ReferenceShapeNode, so it resolves its base node
+ * through `document.modelManager.findNode` rather than the passed-in object,
+ * and needs a real `instanceof ShapeNode` to satisfy that lookup.
+ */
+function liveSolidNode(doc: IDocument, shape: IShape, parent: TrackingParent) {
+    const node = new EditableShapeNode({ document: doc, name: "solid0", shape, materialId: "mat-1" });
+    node.parent = parent;
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) => [node].find(predicate);
+    return node;
 }
 
 /** A parent shape of the given type whose `isPartner` only matches itself. */
@@ -137,6 +165,7 @@ function buildWireCommand(opts: { swap?: boolean } = {}) {
 function buildStandaloneEdgesCommand(count: 1 | 2 = 2) {
     const cmd = new FilletCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const body = mockShape({ shapeType: ShapeTypes.edge });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
@@ -194,16 +223,39 @@ describe("FilletCommand", () => {
 
     test("radius setter should update property", () => {
         const cmd = new FilletCommand();
+        const { doc } = wireCommand(cmd);
+        (doc as any).application = { activeView: {} };
         cmd.radius = 20;
         expect(cmd.radius).toBe(20);
     });
 
-    test("getSteps should return a single edge-selection step", () => {
+    test("getSteps should return the edge-selection step followed by a radius-drag step", () => {
         const cmd = new FilletCommand();
         const steps = (cmd as any).getSteps();
-        expect(steps.length).toBe(1);
+        expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
         expect(steps[0].options.multiple).toBe(true);
+        expect(typeof steps[0].options.afterSelection).toBe("function");
+    });
+
+    describe("queueValueOnExplicitConfirm", () => {
+        test('should queue the current radius when the edge pick finished via Enter/checkmark ("confirm")', () => {
+            const cmd = new FilletCommand();
+            (cmd as any).controller = { result: { status: "success", message: "confirm" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBe(String(cmd.radius));
+        });
+
+        test("should not queue anything when the edge pick finished via Ctrl (no drag skip)", () => {
+            const cmd = new FilletCommand();
+            (cmd as any).controller = { result: { status: "success" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBeUndefined();
+        });
     });
 
     describe("edgeFilter", () => {
@@ -373,25 +425,66 @@ describe("FilletCommand", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should add the filleted EditableShapeNode and remove the original node", () => {
-            const { cmd, parent, shape } = buildFilletCommand([3, 7]);
+        test("should add the fillet as a live EdgeCornerNode and hide the original", () => {
+            const { cmd, parent, shape, solidNode } = buildFilletCommand([3, 7], { liveNode: true });
 
             (cmd as any).executeMainTask();
 
-            // shapeFactory.fillet(node.shape.value, edges, radius) was called.
-            expect(shape.calls.get("transformedMul")).toBeUndefined(); // fillet does not transform the source
-            expect(parent.added).toHaveLength(1);
-            expect(parent.removed).toHaveLength(1);
+            // shapeFactory.fillet is called against the base's transformed shape,
+            // not the raw untransformed one (EdgeCornerNode.generateShape applies
+            // solidNode.transform first, matching every other reference node).
+            expect(shape.calls.get("transformedMul")).toEqual([[solidNode.transform]]);
+            // inserted right after solidNode, not appended, so it lands at its
+            // logical spot in the tree/timeline.
+            expect(parent.insertedAfter).toHaveLength(1);
+            expect(parent.removed).toHaveLength(0); // hidden, not removed - the reference needs it
 
-            const added = parent.added[0] as any;
-            expect(added.name).toBe("solid0");
-            expect(added.materialId).toBe("mat-1");
-            // The original node was removed.
-            expect(parent.removed[0]).toBe(parent.removed[0]);
+            const { target, node: added } = parent.insertedAfter[0] as any;
+            expect(target).toBe(solidNode);
+            expect(added.baseNodeId).toBe(solidNode.id);
+            expect(added.edgeIndexes).toEqual([3, 7]);
+            expect(solidNode.visible).toBe(false);
+            // The feature keeps its own numbered "Fillet N" name (assigned by
+            // EdgeCornerNode's own constructor) - not the hidden base's name,
+            // which would make it look like a second copy of the object it
+            // was cut from, rather than a feature of it, once the base (still
+            // named e.g. "Box 1") is hidden.
+            expect(added.name).not.toBe(solidNode.name);
+        });
+
+        test("should splice a downstream feature onto the new fillet when the base already has one", () => {
+            const { cmd, parent, solidNode, doc } = buildFilletCommand([3, 7], { liveNode: true });
+
+            // downstream already references solidNode directly (e.g. a chamfer
+            // applied earlier to the same body).
+            const downstream = new EdgeCornerNode({
+                document: doc,
+                operateType: "chamfer",
+                baseNodeId: solidNode.id,
+                edgeIndexes: [0],
+                value: 1,
+            });
+            const findSolidNode = (doc.modelManager as any).findNode;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                findSolidNode(predicate) ?? [downstream].find(predicate);
+
+            const { restore } = captureFactory();
+            try {
+                expect(downstream.shape.isOk).toBe(true); // establishes the solidNode -> downstream DAG edge
+
+                (cmd as any).executeMainTask();
+
+                const newFillet = parent.insertedAfter[0].node as EdgeCornerNode;
+                expect(downstream.baseNodeId).toBe(newFillet.id);
+                // newFillet is no longer the end of the chain - downstream is - so it hides itself.
+                expect(newFillet.visible).toBe(false);
+            } finally {
+                restore();
+            }
         });
 
         test("should fall back to rootNode when the original node has no parent", () => {
-            const { cmd, solidNode } = buildFilletCommand([1]);
+            const { cmd, solidNode } = buildFilletCommand([1], { liveNode: true });
             // Detach the node so `node.parent ?? rootNode` is exercised.
             (solidNode as any).parent = undefined;
 
@@ -399,7 +492,7 @@ describe("FilletCommand", () => {
         });
 
         test("should pass the configured radius through to shapeFactory.fillet", () => {
-            const { cmd } = buildFilletCommand([2]);
+            const { cmd } = buildFilletCommand([2], { liveNode: true });
             cmd.radius = 5;
 
             const { calls, restore } = captureFactory();
@@ -535,7 +628,7 @@ describe("FilletCommand", () => {
         });
 
         test("should report the factory error and keep the original node on failure", () => {
-            const { cmd, parent } = buildFilletCommand([3, 7]);
+            const { cmd, parent, solidNode } = buildFilletCommand([3, 7], { liveNode: true });
 
             const factory = captureFactory({ fillet: () => Result.err("boom") });
             const pubsub = capturePubSub();
@@ -546,7 +639,7 @@ describe("FilletCommand", () => {
                     true,
                 );
                 expect(parent.added).toHaveLength(0);
-                expect(parent.removed).toHaveLength(0);
+                expect(solidNode.visible).toBe(true);
             } finally {
                 pubsub.restore();
                 factory.restore();
@@ -582,7 +675,10 @@ describe("FilletCommand", () => {
         });
 
         test("should treat a compound of solids as 3D", () => {
-            const { cmd, body } = buildFilletCommand([3, 7], { bodyType: ShapeTypes.compound });
+            const { cmd, body } = buildFilletCommand([3, 7], {
+                bodyType: ShapeTypes.compound,
+                liveNode: true,
+            });
             cmd.radius = 6;
             (body as any).findSubShapes = (type: ShapeType) =>
                 type === ShapeTypes.solid ? [mockShape({ shapeType: ShapeTypes.solid })] : [];
@@ -598,6 +694,254 @@ describe("FilletCommand", () => {
             } finally {
                 restore();
             }
+        });
+    });
+
+    describe("radius drag (getCornerValueStepData)", () => {
+        /** A shape carrying enough of edgesMeshPosition for `meshShape`'s preview path to not crash. */
+        function meshableShape(overrides: Partial<IShape> = {}) {
+            return mockShape({
+                edgesMeshPosition: () => ({ type: "edges", positions: [] }),
+                ...overrides,
+            } as any);
+        }
+
+        /** A straight edge from `start` to `end`, with real ends/curve/findAncestor so axis geometry can be computed. */
+        function straightEdgeShape(start: XYZ, end: XYZ, overrides: Partial<IShape> = {}) {
+            const dir = end.sub(start);
+            return mockShape({
+                shapeType: ShapeTypes.edge,
+                firstParameter: () => 0,
+                lastParameter: () => 1,
+                ends: () => [start, end] as [XYZ, XYZ],
+                curve: {
+                    value: (u: number) => start.add(dir.multiply(u)),
+                    d1: (u: number) => ({ point: start.add(dir.multiply(u)), vec: dir }),
+                },
+                findAncestor: () => [],
+                ...overrides,
+            } as any);
+        }
+
+        test("solid edge: anchors the drag axis at the edge midpoint, across the adjacent face", () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const face = mockShape({
+                shapeType: ShapeTypes.face,
+                normal: () => [XYZ.zero, XYZ.unitZ],
+            } as any);
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+                findAncestor: () => [face],
+            } as Partial<IShape>);
+
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            const data = (cmd as any).getCornerValueStepData();
+            expect(data.point.x).toBeCloseTo(5);
+            expect(data.point.y).toBeCloseTo(0);
+            // normal (unitZ) x tangent (unitX) = unitY
+            expect(data.direction.x).toBeCloseTo(0);
+            expect(data.direction.y).toBeCloseTo(1);
+            expect(data.direction.z).toBeCloseTo(0);
+            // Enter with no drag/type at all (never touched the properties
+            // panel either) should accept the current radius, not cancel.
+            expect(data.acceptOnEnter?.()).toBe(cmd.radius);
+            // Plain mouse movement must not silently change the radius -
+            // only an explicit Ctrl+move does.
+            expect(data.requireCtrlToDrag).toBe(true);
+        });
+
+        test("solid edge: dragging along the axis previews shapeFactory.fillet and updates radius", () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 2,
+                parent: body,
+            } as Partial<IShape>);
+
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+            const data = (cmd as any).getCornerValueStepData();
+
+            const { calls, restore } = captureFactory({ fillet: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(7));
+                const preview = data.preview(dragged);
+
+                expect(cmd.radius).toBeCloseTo(7);
+                expect(calls["fillet"]).toHaveLength(1);
+                expect(calls["fillet"][0][1]).toEqual([2]);
+                expect(calls["fillet"][0][2]).toBeCloseTo(7);
+                expect(preview).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("face corner: anchors the drag axis at the shared vertex, previews fillet2d", () => {
+            const { cmd, body } = buildFilletCommand([0, 1], { bodyType: ShapeTypes.face });
+            const sel0 = (cmd as any).stepDatas[0].shapes[0];
+            const sel1 = (cmd as any).stepDatas[0].shapes[1];
+            sel0.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 1, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            sel1.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 0, y: 1, z: 0 }), {
+                index: 1,
+                parent: body,
+            } as Partial<IShape>);
+
+            const data = (cmd as any).getCornerValueStepData();
+            expect(data.point.x).toBeCloseTo(0);
+            expect(data.point.y).toBeCloseTo(0);
+
+            const { calls, restore } = captureFactory({ fillet2d: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(2));
+                data.preview(dragged);
+
+                expect(cmd.radius).toBeCloseTo(2);
+                expect(calls["fillet2d"]).toHaveLength(1);
+                expect(calls["fillet2d"][0][0]).toBe(body);
+            } finally {
+                restore();
+            }
+        });
+
+        test("standalone edges: previews filletEdge2d on the transformed edges", () => {
+            const { cmd } = buildStandaloneEdgesCommand();
+            const sel0 = (cmd as any).stepDatas[0].shapes[0];
+            const sel1 = (cmd as any).stepDatas[0].shapes[1];
+            const sharedParent = sel0.shape.parent;
+            sel0.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 1, y: 0, z: 0 }), {
+                parent: sharedParent,
+            } as Partial<IShape>);
+            sel1.shape = straightEdgeShape(new XYZ({ x: 1, y: 0, z: 0 }), new XYZ({ x: 1, y: 1, z: 0 }), {
+                parent: sharedParent,
+            } as Partial<IShape>);
+
+            const data = (cmd as any).getCornerValueStepData();
+
+            const { calls, restore } = captureFactory({
+                filletEdge2d: () => Result.ok([meshableShape(), meshableShape(), meshableShape()]),
+            });
+            try {
+                const dragged = data.point.add(data.direction.multiply(1.5));
+                const preview = data.preview(dragged);
+
+                expect(cmd.radius).toBeCloseTo(1.5);
+                expect(calls["filletEdge2d"]).toHaveLength(1);
+                expect(preview.length).toBeGreaterThan(0);
+            } finally {
+                restore();
+            }
+        });
+
+        test("typing a new value should apply it through the active SnapEventHandler", () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            cmd.radius = 15;
+
+            expect(cmd.radius).toBe(15);
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
+        });
+
+        test("typing a new value should do nothing to the view when no SnapEventHandler is active", () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+
+            expect(() => {
+                cmd.radius = 15;
+            }).not.toThrow();
+            expect(cmd.radius).toBe(15);
+        });
+
+        test("typing a value while still picking edges applies it the instant the drag step starts, with no drag needed", async () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet, so this can
+            // only queue the value, not apply it (see the "do nothing" test above).
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            cmd.radius = 15;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            // The drag step starting: EdgeCornerCommand.getSteps calls this to
+            // build the LengthAtAxisStep's data, before picker.pickAsync (which
+            // assigns the real handler) has even run - matching production order.
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
+        });
+
+        test("pressing Enter without changing the suggested default still finishes the command once the drag step starts", async () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet. Radius is
+            // already 10 (the default), so this is a same-value "no-op" write -
+            // it must still queue, not silently do nothing.
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            const suggestedDefault = cmd.radius;
+            cmd.radius = suggestedDefault;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("10"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "10");
         });
     });
 });

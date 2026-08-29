@@ -513,6 +513,56 @@ describe("SubshapeSelectionHandler", () => {
             expect(successCalled).toBe(false);
         });
 
+        test("should complete in multi mode on Ctrl+click, even when canFinish returns false", () => {
+            const controller = new AsyncController();
+            let successCalled = false;
+            controller.onCompleted(() => {
+                successCalled = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            handler.canFinish = () => false;
+
+            const shapeData = createVisualShapeData();
+            view.detectShapes = () => [shapeData];
+            selection.setSelectedShapes = () => 1;
+
+            handler.pointerDown(view, createPointerEvent({ pointerId: 1 }));
+            handler.pointerMove(view, createPointerEvent({ pointerId: 1, buttons: 1 }));
+            handler.pointerUp(view, createPointerEvent({ pointerId: 1, ctrlKey: true }));
+
+            expect(successCalled).toBe(true);
+            // Not "confirm" - Ctrl+click, like Ctrl-hold, means "let me keep
+            // interacting" (dragging), unlike Enter/checkmark.
+            expect(controller.result?.message).toBeUndefined();
+        });
+
+        test("should not complete on Ctrl+click when nothing was actually selected", () => {
+            const controller = new AsyncController();
+            let successCalled = false;
+            controller.onCompleted(() => {
+                successCalled = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            handler.canFinish = () => false;
+
+            view.detectShapes = () => [];
+            selection.setSelectedShapes = () => 0;
+
+            handler.pointerDown(view, createPointerEvent({ pointerId: 1 }));
+            handler.pointerMove(view, createPointerEvent({ pointerId: 1, buttons: 1 }));
+            handler.pointerUp(view, createPointerEvent({ pointerId: 1, ctrlKey: true }));
+
+            expect(successCalled).toBe(false);
+        });
+
         test("should pass the current selection to canFinish", () => {
             const controller = new AsyncController();
             const { handler, view, selection } = setupSubshapeSelectionHandler({
@@ -612,6 +662,62 @@ describe("SubshapeSelectionHandler", () => {
             } as KeyboardEvent);
 
             expect(completed).toBe(true);
+            // "confirm" marks Enter as an explicit accept, as opposed to Ctrl
+            // finishing a pick to continue into a further interactive step.
+            expect(controller.result?.message).toBe("confirm");
+        });
+
+        test("should complete on Control keydown in multi mode once something is already selected", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            selection.getSelectedShapes = () => [createVisualShapeData()];
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(true);
+            // Not "confirm" - Ctrl means "let me keep interacting" (dragging),
+            // unlike Enter/checkmark which mean "I'm done, apply it now".
+            expect(controller.result?.message).toBeUndefined();
+        });
+
+        test("should not complete on Control keydown when nothing is selected yet", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(false);
+        });
+
+        test("should not complete on Control keydown outside multi mode", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({ controller });
+            selection.getSelectedShapes = () => [createVisualShapeData()];
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(false);
         });
     });
 

@@ -13,11 +13,12 @@ import {
     SelectShapeStep,
     ShapeNode,
     ShapeTypes,
+    spliceIntoReferenceChain,
     Transaction,
     type VisualShapeData,
     VisualStates,
 } from "@chili3d/core";
-import { BooleanNode } from "../bodys/boolean";
+import { BooleanNode, type BooleanOperateType } from "../bodys/boolean";
 
 export abstract class BooleanOperate extends MultistepCommand {
     private tempVisual?: number;
@@ -32,29 +33,46 @@ export abstract class BooleanOperate extends MultistepCommand {
 
     protected override executeMainTask() {
         Transaction.execute(this.document, "boolean", () => {
-            const booleanShape = this.booleanOperate(this.stepDatas[1].shapes);
-            if (!booleanShape.isOk) {
-                PubSub.default.pub("showToast", "error.default:{0}", booleanShape.error);
+            const baseNode = this.stepDatas[0].nodes?.[0];
+            const toolNodes = this.stepDatas[1].nodes ?? [];
+            if (!baseNode || toolNodes.length === 0) return;
+
+            const node = new BooleanNode({
+                document: this.document,
+                operateType: this.getBooleanOperateType(),
+                baseNodeId: baseNode.id,
+                toolNodeIds: toolNodes.map((n) => n.id),
+            });
+
+            if (!node.shape.isOk) {
+                PubSub.default.pub("showToast", "error.default:{0}", node.shape.error);
+                node.dispose();
                 return;
             }
-            const node = new BooleanNode({ document: this.document, booleanShape: booleanShape.value });
-            this.document.modelManager.rootNode.add(node);
-            if (this.keepTools) {
-                this.stepDatas[0].nodes?.forEach((x) => x.parent?.remove(x));
+
+            // Insert right after the last consumed node so the boolean lands at its
+            // logical spot in the tree/timeline, not always appended at the end.
+            const anchor = toolNodes.length > 0 ? toolNodes[toolNodes.length - 1] : baseNode;
+            if (anchor.parent === this.document.modelManager.rootNode) {
+                this.document.modelManager.rootNode.insertAfter(anchor, node);
             } else {
-                this.stepDatas.forEach((x) => {
-                    x.nodes?.forEach((n) => n.parent?.remove(n));
+                this.document.modelManager.rootNode.add(node);
+            }
+            // Hide rather than delete the consumed nodes - the boolean node keeps
+            // a live reference to them, so deleting would break that reference.
+            baseNode.visible = false;
+            if (baseNode instanceof ShapeNode) spliceIntoReferenceChain(this.document, baseNode, node);
+            if (!this.keepTools) {
+                toolNodes.forEach((n) => {
+                    n.visible = false;
+                    if (n instanceof ShapeNode) spliceIntoReferenceChain(this.document, n, node);
                 });
             }
             this.document.visual.update();
         });
     }
 
-    private getBooleanShape(
-        type: "common" | "cut" | "fuse",
-        shape1: IShape,
-        tools: IShape[],
-    ): Result<IShape> {
+    private getBooleanShape(type: BooleanOperateType, shape1: IShape, tools: IShape[]): Result<IShape> {
         switch (type) {
             case "common":
                 return shapeFactory.booleanCommon([shape1], tools);
@@ -65,7 +83,7 @@ export abstract class BooleanOperate extends MultistepCommand {
         }
     }
 
-    protected abstract getBooleanOperateType(): "common" | "cut" | "fuse";
+    protected abstract getBooleanOperateType(): BooleanOperateType;
 
     protected override getSteps(): IStep[] {
         return [
@@ -152,7 +170,7 @@ export abstract class BooleanOperate extends MultistepCommand {
     icon: "icon-booleanCommon",
 })
 export class BooleanCommon extends BooleanOperate {
-    protected override getBooleanOperateType(): "common" | "cut" | "fuse" {
+    protected override getBooleanOperateType(): BooleanOperateType {
         return "common";
     }
 }
@@ -162,7 +180,7 @@ export class BooleanCommon extends BooleanOperate {
     icon: "icon-booleanCut",
 })
 export class BooleanCut extends BooleanOperate {
-    protected override getBooleanOperateType(): "common" | "cut" | "fuse" {
+    protected override getBooleanOperateType(): BooleanOperateType {
         return "cut";
     }
 }
@@ -172,7 +190,7 @@ export class BooleanCut extends BooleanOperate {
     icon: "icon-booleanFuse",
 })
 export class BooleanFuse extends BooleanOperate {
-    protected override getBooleanOperateType(): "common" | "cut" | "fuse" {
+    protected override getBooleanOperateType(): BooleanOperateType {
         return "fuse";
     }
 }

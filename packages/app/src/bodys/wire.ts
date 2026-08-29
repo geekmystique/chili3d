@@ -2,41 +2,44 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     type I18nKeys,
-    type IDocument,
     type IEdge,
     type IShape,
-    ParameterShapeNode,
     type Result,
+    ShapeTypes,
     serializable,
-    serialize,
 } from "@chili3d/core";
+import { SourceListShapeNode } from "./sourceListShapeNode";
 
-export interface WireOptions {
-    document: IDocument;
-    edges: IEdge[];
-}
-
+/**
+ * Holds references to the edge/wire node ids being combined, rather than
+ * baked edge shapes. Editing a referenced node's own parameters recomputes
+ * this node. The referenced nodes are hidden, not deleted, by ConvertToWire,
+ * so the references keep resolving.
+ */
 @serializable()
-export class WireNode extends ParameterShapeNode {
+export class WireNode extends SourceListShapeNode {
+    protected readonly errorLabel = "Wire";
+
     override display(): I18nKeys {
         return "body.wire";
     }
 
-    @serialize()
-    get edges(): IEdge[] {
-        return this.getPrivateValue("edges");
-    }
-    set edges(values: IEdge[]) {
-        this.setPropertyEmitShapeChanged("edges", values);
+    override get editCommandKey(): CommandKeys {
+        return "modify.wireEdit";
     }
 
-    constructor(options: WireOptions) {
-        super(options);
-        this.setPrivateValue("edges", options.edges);
-    }
+    protected override combineShapes(shapes: IShape[]): Result<IShape> {
+        const edges: IEdge[] = [];
+        for (const shape of shapes) {
+            if (shape.shapeType === ShapeTypes.edge) {
+                edges.push(shape as IEdge);
+            } else if (shape.shapeType === ShapeTypes.wire) {
+                edges.push(...(shape.findSubShapes(ShapeTypes.edge) as IEdge[]));
+            }
+        }
 
-    override generateShape(): Result<IShape> {
-        return shapeFactory.wire(this.edges);
+        return shapeFactory.wire(edges);
     }
 }

@@ -146,6 +146,7 @@ describe("SelectShapeStep", () => {
         const step = new SelectShapeStep(ShapeTypes.edge, tip() as never, {
             shapeFilter,
             nodeFilter,
+            showControl: true,
         });
         await step.execute(doc, controller);
 
@@ -153,6 +154,7 @@ describe("SelectShapeStep", () => {
         expect(capturedOptions.shapeType).toBe(ShapeTypes.edge);
         expect(capturedOptions.shapeFilter).toBe(shapeFilter);
         expect(capturedOptions.nodeFilter).toBe(nodeFilter);
+        expect(capturedOptions.showControl).toBe(true);
         controller.dispose();
     });
 });
@@ -368,6 +370,36 @@ describe("SelectNodeStep", () => {
         const step = new SelectNodeStep(tip() as never, { keepSelection: true });
         await step.execute(doc, controller);
         expect(cleared).toBe(false);
+        controller.dispose();
+    });
+
+    test("should pass filter and showControl options to pickNode", async () => {
+        let capturedOptions: any;
+        const picker = createMockPicker({ pickNodeResult: [{ id: "n1" } as never] });
+        picker.pickNode = (_prompt, _ctrl, options) => {
+            capturedOptions = options;
+            return Promise.resolve([{ id: "n1" } as never]);
+        };
+        const selection = createMockSelection();
+        const doc = new TestDocument({
+            picker,
+            selection,
+            application: { activeView: {} as IView } as never,
+        });
+        const controller = new AsyncController();
+
+        const nodeFilter: INodeFilter = { allow: () => true };
+        const step = new SelectNodeStep(tip() as never, {
+            filter: nodeFilter,
+            multiple: true,
+            showControl: true,
+        });
+        await step.execute(doc, controller);
+
+        expect(capturedOptions).toBeDefined();
+        expect(capturedOptions.nodeFilter).toBe(nodeFilter);
+        expect(capturedOptions.multi).toBe(true);
+        expect(capturedOptions.showControl).toBe(true);
         controller.dispose();
     });
 });

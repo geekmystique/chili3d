@@ -1,0 +1,310 @@
+// Part of the Chili3d Project, under the AGPL-3.0 License.
+// See LICENSE file in the project root for full license information.
+
+import {
+    GeometryNode,
+    type IDocument,
+    type INode,
+    type INodeLinkedList,
+    Localize,
+    type NodeRecord,
+    PubSub,
+    ReferenceShapeNode,
+    removeFromReferenceChain,
+    Transaction,
+} from "@chili3d/core";
+import { div, label } from "@chili3d/element";
+import { DropdownController } from "../ribbon/dropdownController";
+import { TimelineItem } from "./timelineItem";
+import style from "./timelineTrack.module.css";
+
+/**
+ * One document's timeline strip: a flat, left-to-right list of every
+ * GeometryNode (body/feature) in the document, ordered by dependency chain
+ * (a source before whatever references it) with GeometryNode.createdOrder as
+ * the tie-break wherever the chain itself doesn't force an order - not tree
+ * position. Reorganizing the project tree (moving/reparenting nodes) does
+ * not reorder this strip.
+ */
+export class TimelineTrack extends HTMLElement {
+    private readonly nodeMap = new Map<GeometryNode, TimelineItem>();
+    private readonly contextMenu = new DropdownController(style.contextMenu);
+
+    /** The node currently "rolled back" to, and every node after it that got forced hidden for the preview. */
+    private previewedNode: GeometryNode | undefined;
+    private previewHiddenNodes: GeometryNode[] = [];
+
+    constructor(private document: IDocument) {
+        super();
+        this.className = style.track;
+        this.collectExisting(document.modelManager.rootNode).forEach((node) => {
+            this.addItem(node);
+        });
+        this.reorderByCreatedOrder();
+    }
+
+    connectedCallback(): void {
+        this.document.modelManager.addNodeObserver(this.handleNodeChanged);
+        this.document.selection.onNodeChanged.sub(this.handleSelectionChanged);
+        PubSub.default.sub("closeCommandContext", this.restorePreview);
+        PubSub.default.sub("closeCommandContext", this.reorderByCreatedOrder);
+        this.addEventListener("click", this.onClick);
+        this.addEventListener("dblclick", this.onDoubleClick);
+        this.addEventListener("contextmenu", this.onContextMenu);
+    }
+
+    disconnectedCallback(): void {
+        this.document.modelManager.removeNodeObserver(this.handleNodeChanged);
+        this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
+        PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
+        this.removeEventListener("click", this.onClick);
+        this.removeEventListener("dblclick", this.onDoubleClick);
+        this.removeEventListener("contextmenu", this.onContextMenu);
+    }
+
+    dispose(): void {
+        this.restorePreview();
+        PubSub.default.remove("closeCommandContext", this.restorePreview);
+        PubSub.default.remove("closeCommandContext", this.reorderByCreatedOrder);
+        this.contextMenu.dispose();
+        this.nodeMap.forEach((item) => {
+            item.dispose();
+        });
+        this.nodeMap.clear();
+        this.document.modelManager.removeNodeObserver(this.handleNodeChanged);
+        this.document.selection.onNodeChanged.remove(this.handleSelectionChanged);
+        this.document = null as any;
+    }
+
+    /**
+     * Roll the 3D view back to how it looked right after `node` was computed:
+     * `node` itself is shown (even if something later in the chain normally
+     * keeps it hidden), and everything after it in tree order is hidden -
+     * whatever `node`'s own downstream would have looked like at that point
+     * in the timeline hasn't happened yet. Selecting a different node (or an
+     * edit/structural change completing - see restorePreview) replaces or
+     * clears this; it never touches node.visible itself, so it can't create
+     * undo history or survive a reload.
+     */
+    private readonly previewAt = (node: GeometryNode) => {
+        this.restorePreview();
+
+        const order = this.collectExisting(this.document.modelManager.rootNode);
+        const index = order.indexOf(node);
+        if (index === -1) return;
+
+        const context = this.document.visual.context;
+        context.setVisible(node, node.parentVisible);
+
+        const after = order.slice(index + 1);
+        after.forEach((n) => {
+            context.setVisible(n, false);
+        });
+
+        this.previewedNode = node;
+        this.previewHiddenNodes = after;
+        // Editing this node directly through the Properties panel (e.g. a
+        // length or radius) never runs a command, so closeCommandContext
+        // never fires for it - only this node's own property change reliably
+        // signals "the user just edited what they're looking at in the past".
+        node.onPropertyChanged(this.onPreviewedNodeChanged);
+    };
+
+    /** Drop the rollback preview, if any, and re-render every node it touched at its real visibility. */
+    private readonly restorePreview = () => {
+        if (!this.previewedNode) return;
+        this.previewedNode.removePropertyChanged(this.onPreviewedNodeChanged);
+        const context = this.document.visual.context;
+        const restore = (n: GeometryNode) => context.setVisible(n, n.visible && n.parentVisible);
+        restore(this.previewedNode);
+        this.previewHiddenNodes.forEach(restore);
+        this.previewedNode = undefined;
+        this.previewHiddenNodes = [];
+    };
+
+    private readonly onPreviewedNodeChanged = () => this.restorePreview();
+
+    /**
+     * Dependency order first (a source before whatever now references it),
+     * created order as the tie-break wherever the dependency chain itself
+     * doesn't dictate a position. Plain creation order alone would freeze a
+     * retroactively-edited feature at its literal construction time - e.g.
+     * fillet a boolean's already-consumed cutting tool, splicing the fillet
+     * in ahead of the boolean - at the end of the strip, after the boolean
+     * that now depends on it, instead of before it.
+     */
+    private collectExisting(node: INode): GeometryNode[] {
+        const result: GeometryNode[] = [];
+        this.collectExistingRecursive(node, result);
+
+        const graph = this.document.modelManager.dependencyGraph;
+        if (!graph) return result.sort((a, b) => a.createdOrder - b.createdOrder);
+
+        const byId = new Map(result.map((n) => [n.id, n]));
+        const order = graph.orderAll(
+            byId.keys(),
+            (a, b) => byId.get(a)!.createdOrder - byId.get(b)!.createdOrder,
+        );
+        return order.map((id) => byId.get(id)!);
+    }
+
+    private collectExistingRecursive(node: INode, result: GeometryNode[]): void {
+        if (node instanceof GeometryNode) result.push(node);
+        const firstChild = (node as INodeLinkedList).firstChild;
+        if (firstChild) this.collectExistingRecursive(firstChild, result);
+        if (node.nextSibling) this.collectExistingRecursive(node.nextSibling, result);
+    }
+
+    private addItem(node: GeometryNode) {
+        if (this.nodeMap.has(node)) return;
+        const item = new TimelineItem(this.document, node);
+        this.nodeMap.set(node, item);
+    }
+
+    private removeItem(node: GeometryNode) {
+        const item = this.nodeMap.get(node);
+        if (!item) return;
+        item.dispose();
+        this.nodeMap.delete(node);
+    }
+
+    private readonly handleNodeChanged = (records: NodeRecord[]) => {
+        this.restorePreview();
+        records.forEach((record) => {
+            if (!(record.node instanceof GeometryNode)) return;
+            if (record.newParent) {
+                this.addItem(record.node);
+            } else {
+                this.removeItem(record.node);
+            }
+        });
+        this.reorderByCreatedOrder();
+    };
+
+    /**
+     * DOM append() moves an already-attached element rather than duplicating
+     * it, so walking every known item in dependency/created order and
+     * re-appending it is an O(n log n) way to keep the strip's visual order
+     * in sync - needed because a new node can be created anywhere in the
+     * tree, not just at the end, and the tree itself can be reorganized
+     * independently.
+     *
+     * Also subscribed directly to closeCommandContext (every command's own
+     * lifecycle fires this once it finishes, success or not): a retroactive
+     * splice - fillet a boolean's already-consumed source, say - redirects a
+     * dependency via redirectReference, which changes what order() should
+     * produce, but isn't itself a tree add/remove/move, so handleNodeChanged
+     * below never sees it. Structural changes still reorder immediately (for
+     * live feedback as nodes are added); this is the catch-all that keeps the
+     * strip correct once the whole operation - splice included - has settled.
+     */
+    private readonly reorderByCreatedOrder = (): void => {
+        this.collectExisting(this.document.modelManager.rootNode).forEach((node) => {
+            const item = this.nodeMap.get(node);
+            if (item) this.append(item);
+        });
+    };
+
+    private readonly handleSelectionChanged = (selected: INode[]) => {
+        const related = this.collectRelatedIds(selected);
+        this.nodeMap.forEach((item, node) => {
+            if (selected.includes(node)) {
+                item.addStyle(style.selected);
+                item.removeStyle(style.related);
+            } else {
+                item.removeStyle(style.selected);
+                if (related.has(node.id)) {
+                    item.addStyle(style.related);
+                } else {
+                    item.removeStyle(style.related);
+                }
+            }
+        });
+        const node = selected.find((n) => this.nodeMap.has(n as GeometryNode));
+        if (node) {
+            this.nodeMap.get(node as GeometryNode)?.scrollIntoView({ inline: "nearest", behavior: "smooth" });
+        }
+    };
+
+    /** Every node transitively upstream or downstream of any selected node, via the DependencyGraph. */
+    private collectRelatedIds(selected: INode[]): Set<string> {
+        const graph = this.document.modelManager.dependencyGraph;
+        const related = new Set<string>();
+        if (!graph) return related;
+        selected.forEach((node) => {
+            graph.getAllDependencies(node.id).forEach((id) => {
+                related.add(id);
+            });
+            graph.getAllDependents(node.id).forEach((id) => {
+                related.add(id);
+            });
+        });
+        return related;
+    }
+
+    private readonly onClick = (event: MouseEvent) => {
+        const item = this.getTimelineItem(event.target as HTMLElement | null);
+        if (!item) return;
+        this.document.selection.setSelectedNodes([item.node], event.ctrlKey);
+        // A plain click previews that point in the timeline; ctrl-click builds a
+        // multi-selection, which has no single "point in time" to roll back to.
+        if (!event.ctrlKey && item.node instanceof GeometryNode) this.previewAt(item.node);
+    };
+
+    /** Double-clicking a feature that declares an editCommandKey re-opens its re-pick flow. */
+    private readonly onDoubleClick = (event: MouseEvent) => {
+        const item = this.getTimelineItem(event.target as HTMLElement | null);
+        if (!item) return;
+        const node = item.node;
+        if (!(node instanceof ReferenceShapeNode)) return;
+        const commandKey = node.editCommandKey;
+        if (!commandKey) return;
+        this.document.selection.setSelectedNodes([node], false);
+        this.previewAt(node);
+        PubSub.default.pub("executeCommand", commandKey);
+    };
+
+    /** Right-clicking a feature offers to delete it out of the chain - see removeFromReferenceChain. */
+    private readonly onContextMenu = (event: MouseEvent) => {
+        const item = this.getTimelineItem(event.target as HTMLElement | null);
+        if (!item || !(item.node instanceof ReferenceShapeNode)) return;
+        event.preventDefault();
+        const node = item.node;
+        this.document.selection.setSelectedNodes([node], false);
+        this.contextMenu.openAt(event.clientX, event.clientY, (menu) => {
+            menu.append(
+                div(
+                    {
+                        className: style.contextMenuItem,
+                        onclick: () => {
+                            this.contextMenu.close();
+                            this.deleteFeature(node);
+                        },
+                    },
+                    label({ textContent: new Localize("timeline.deleteFeature") }),
+                ),
+            );
+        });
+    };
+
+    private deleteFeature(node: ReferenceShapeNode) {
+        let removed = false;
+        Transaction.execute(this.document, "delete feature", () => {
+            removed = removeFromReferenceChain(this.document, node);
+        });
+        if (!removed) {
+            PubSub.default.pub("showToast", "toast.deleteFeature.blocked");
+            return;
+        }
+        this.document.visual.update();
+    }
+
+    private getTimelineItem(el: HTMLElement | null): TimelineItem | undefined {
+        if (!el) return undefined;
+        if (el instanceof TimelineItem) return el;
+        return this.getTimelineItem(el.parentElement);
+    }
+}
+
+customElements.define("ui-timeline-track", TimelineTrack);

@@ -1,8 +1,61 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { FolderNode, Id, type INode, InternalClassName, type ModelManager, type OnNodeChanged } from "../src";
-import { TestDocument } from "../test-utils";
+import {
+    FolderNode,
+    GeometryNode,
+    type IDocument,
+    Id,
+    type INode,
+    InternalClassName,
+    type IShape,
+    type ModelManager,
+    type OnNodeChanged,
+    ParameterShapeNode,
+    ReferenceShapeNode,
+    Result,
+    serializable,
+    serialize,
+} from "../src";
+import { MockShape, TestDocument } from "../test-utils";
+
+/** A ParameterShapeNode whose shape is trivial and never itself serialized - stands in for a body's base. */
+@serializable()
+class MMTestBaseNode extends ParameterShapeNode {
+    override display(): any {
+        return "test.mmBaseNode";
+    }
+
+    override generateShape(): Result<IShape> {
+        return Result.ok(new MockShape() as unknown as IShape);
+    }
+}
+
+/** A ReferenceShapeNode holding a plain string id reference, like ExtrudeNode.sectionNodeId etc. */
+@serializable()
+class MMTestRefNode extends ReferenceShapeNode {
+    @serialize()
+    get baseId(): string {
+        return this.getPrivateValue("baseId");
+    }
+
+    constructor(options: { document: IDocument; baseId: string; id?: string }) {
+        super(options);
+        this.setPrivateValue("baseId", options.baseId);
+    }
+
+    override display(): any {
+        return "test.mmRefNode";
+    }
+
+    override generateShape(): Result<IShape> {
+        const base = this.resolveInput(this.baseId);
+        if (!base) return Result.err(`base not found: ${this.baseId}`);
+        if (!base.shape.isOk) return Result.err(base.shape.error);
+        this.subscribeTo([base]);
+        return Result.ok(base.shape.value);
+    }
+}
 
 function newNode(name: string, id?: string): INode {
     return {
@@ -308,6 +361,129 @@ describe("ModelManager", () => {
             expect(modelManager.components).toHaveLength(0);
             expect(modelManager.materials).toHaveLength(0);
             expect(modelManager.rootNode).not.toBeNull();
+        });
+
+        /**
+         * Regression coverage for a real bug: FolderNode.add() fires an "add"
+         * notification unconditionally, for every node, throughout the whole
+         * rebuild - but this.rootNode isn't assigned until deserialize()
+         * returns. An eager observer (the 3D view's ThreeGeometry reads a
+         * node's mesh, hence its shape, synchronously in its own constructor)
+         * reacting to that notification would trigger a ReferenceShapeNode's
+         * *first-ever* shape computation while findNode/resolveInput has
+         * nothing to search - and because that computation only ever runs
+         * once, the resulting failure was permanent, surviving long after the
+         * rest of the document (including the very node being referenced)
+         * finished loading correctly a moment later.
+         */
+        describe("reference resolution timing (regression)", () => {
+            function eagerlyReadShapeOnAdd(target: ModelManager) {
+                const observedResults: boolean[] = [];
+                target.addNodeObserver((records) => {
+                    records.forEach((r) => {
+                        if (r.action === "add" && r.node instanceof GeometryNode) {
+                            observedResults.push((r.node as any).shape.isOk);
+                        }
+                    });
+                });
+                return observedResults;
+            }
+
+            test("a reference resolves correctly for an observer that eagerly reads shape mid-rebuild", async () => {
+                const sourceDoc = new TestDocument();
+                const base = new MMTestBaseNode({ document: sourceDoc });
+                sourceDoc.modelManager.addNode(base);
+                const ref = new MMTestRefNode({ document: sourceDoc, baseId: base.id });
+                sourceDoc.modelManager.addNode(ref);
+                expect(ref.shape.isOk).toBe(true); // sanity: resolves before any round trip
+
+                const serialized = sourceDoc.modelManager.serialize();
+
+                const destDoc = new TestDocument();
+                const observedResults = eagerlyReadShapeOnAdd(destDoc.modelManager);
+
+                await destDoc.modelManager.deserialize(serialized);
+
+                const reloadedRef = destDoc.modelManager.findNode((n) => n instanceof MMTestRefNode) as
+                    | MMTestRefNode
+                    | undefined;
+                expect(reloadedRef).toBeDefined();
+                expect(reloadedRef!.shape.isOk).toBe(true);
+                expect(reloadedRef!.baseId).toBe(base.id);
+                // Every node the eager observer looked at mid-rebuild also resolved -
+                // it never saw the unset-rootNode window this regression depends on.
+                expect(observedResults.length).toBeGreaterThan(0);
+                expect(observedResults.every((ok) => ok)).toBe(true);
+            });
+
+            test("still resolves when the reference precedes its target in tree/serialization order", async () => {
+                // root's children in this exact order: ref, then base - so ref is
+                // serialized (and deserialized) before the node it points to exists.
+                const sourceDoc = new TestDocument();
+                const base = new MMTestBaseNode({ document: sourceDoc });
+                const ref = new MMTestRefNode({ document: sourceDoc, baseId: base.id });
+                sourceDoc.modelManager.rootNode.add(ref, base);
+
+                const serialized = sourceDoc.modelManager.serialize();
+
+                const destDoc = new TestDocument();
+                eagerlyReadShapeOnAdd(destDoc.modelManager);
+
+                await destDoc.modelManager.deserialize(serialized);
+
+                const reloadedRef = destDoc.modelManager.findNode((n) => n instanceof MMTestRefNode) as
+                    | MMTestRefNode
+                    | undefined;
+                expect(reloadedRef!.shape.isOk).toBe(true);
+            });
+
+            test("observers are not notified while the tree is being rebuilt, only once after rootNode is set", async () => {
+                const sourceDoc = new TestDocument();
+                const base = new MMTestBaseNode({ document: sourceDoc });
+                sourceDoc.modelManager.addNode(base);
+                const serialized = sourceDoc.modelManager.serialize();
+
+                const destDoc = new TestDocument();
+                let sawRootNodeDuringNotify: INode | undefined;
+                let notifyCallCount = 0;
+                destDoc.modelManager.addNodeObserver(() => {
+                    notifyCallCount++;
+                    sawRootNodeDuringNotify = destDoc.modelManager["_rootNode"];
+                });
+
+                await destDoc.modelManager.deserialize(serialized);
+
+                expect(notifyCallCount).toBe(1);
+                expect(sawRootNodeDuringNotify).toBe(destDoc.modelManager.rootNode);
+            });
+
+            test("a deserialize that throws partway through still stops batching, instead of blackholing every later notification", async () => {
+                const destDoc = new TestDocument();
+                let notifyCallCount = 0;
+                destDoc.modelManager.addNodeObserver(() => {
+                    notifyCallCount++;
+                });
+
+                // A node referencing a class name that was never @serializable()'d -
+                // Serializer.deserializeInstance throws building it, partway through
+                // the rebuild, with rootNode not yet assigned.
+                const malformed = {
+                    components: [],
+                    nodes: [{ [InternalClassName]: "NotARealRegisteredClass", id: Id.generate() }],
+                    materials: [],
+                };
+
+                await expect(destDoc.modelManager.deserialize(malformed)).rejects.toThrow();
+
+                // The failed deserialize's own attempted notifications (if any) were
+                // dropped, not delivered - that part is fine. What must NOT happen is
+                // every notification from here on being silently swallowed too.
+                notifyCallCount = 0;
+                const node = new MMTestBaseNode({ document: destDoc });
+                destDoc.modelManager.addNode(node);
+
+                expect(notifyCallCount).toBeGreaterThan(0);
+            });
         });
     });
 

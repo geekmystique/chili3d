@@ -5,21 +5,24 @@ import {
     command,
     type GeometryNode,
     type IStep,
-    type IWire,
     property,
     SelectShapeStep,
+    type ShapeNode,
     type ShapeType,
     ShapeTypes,
+    spliceIntoReferenceChain,
     VisualStates,
 } from "@chili3d/core";
-import { SweepedNode } from "../../bodys";
-import { CreateFromSelectionCommand } from "../createCommand";
+import { SweepedNode, sweepRefFromPick } from "../../bodys";
+import { CreateFromSelectionCommand, selectedWholeShapeNodes } from "../createCommand";
 
 @command({
     key: "create.sweep",
     icon: "icon-sweep",
 })
 export class Sweep extends CreateFromSelectionCommand {
+    private createdNode?: SweepedNode;
+
     @property("option.command.isRoundCorner")
     get round() {
         return this.getPrivateValue("round", false);
@@ -30,14 +33,56 @@ export class Sweep extends CreateFromSelectionCommand {
     }
 
     protected override geometryNode(): GeometryNode {
-        const path = this.transformdFirstShape(this.stepDatas[0], false) as IWire;
-        const shapes = this.transformdShapes(this.stepDatas[1], false) as IWire[];
-        return new SweepedNode({
+        const pathPick = this.stepDatas[0].shapes[0];
+        const pathRef = sweepRefFromPick(pathPick.owner.node as ShapeNode, pathPick.shape);
+
+        const profileRefs = this.stepDatas[1].shapes.map((pick) =>
+            sweepRefFromPick(pick.owner.node as ShapeNode, pick.shape),
+        );
+
+        const node = new SweepedNode({
             document: this.document,
-            profile: shapes,
-            path,
+            profileNodeIds: profileRefs.map((r) => r.nodeId),
+            profileShapeTypes: profileRefs.map((r) => r.shapeType),
+            profileIndexes: profileRefs.map((r) => r.index),
+            pathNodeId: pathRef.nodeId,
+            pathShapeType: pathRef.shapeType,
+            pathIndex: pathRef.index,
             round: this.round,
         });
+        this.createdNode = node;
+        return node;
+    }
+
+    /**
+     * Hide rather than delete the source node(s) - SweepedNode keeps a live
+     * reference to whichever nodes its path and profiles were picked from,
+     * so deleting them would break those references. Sub-shape picks (an
+     * edge of an existing solid) are excluded by selectedWholeShapeNodes, so
+     * that solid stays visible.
+     */
+    protected override afterNodeCreated(): void {
+        if (this.deleteObjects) {
+            selectedWholeShapeNodes(this.stepDatas).forEach((node) => {
+                node.visible = false;
+                if (this.createdNode) spliceIntoReferenceChain(this.document, node, this.createdNode);
+            });
+        }
+        this.repositionAfterPath();
+    }
+
+    /**
+     * The new Sweep was appended to the tree by the shared CreateCommand
+     * flow before afterNodeCreated ran. Move it to sit right after its path
+     * node instead, so it lands at its logical spot in the tree/timeline
+     * rather than always at the end.
+     */
+    private repositionAfterPath(): void {
+        const createdNode = this.createdNode;
+        if (!createdNode?.parent) return;
+        const path = this.document.modelManager.findNode((n) => n.id === createdNode.pathNodeId);
+        if (!path?.parent) return;
+        createdNode.parent.move(createdNode, path.parent, path);
     }
 
     protected override getSteps(): IStep[] {

@@ -68,6 +68,51 @@ describe("node", () => {
     });
 });
 
+describe("NodeUtils.nextNumberedName", () => {
+    let doc: IDocument;
+
+    beforeEach(() => {
+        doc = new TestDocument() as any;
+    });
+
+    test("should return '1' when nothing of that name exists yet", () => {
+        expect(NodeUtils.nextNumberedName(doc, "Box")).toBe("Box 1");
+    });
+
+    test("should number up past an existing numbered name", () => {
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box 1" }));
+        expect(NodeUtils.nextNumberedName(doc, "Box")).toBe("Box 2");
+    });
+
+    test("should use one past the highest existing number, not fill gaps", () => {
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box 1" }));
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box 3" }));
+        expect(NodeUtils.nextNumberedName(doc, "Box")).toBe("Box 4");
+    });
+
+    test("should ignore unrelated names, including ones that merely start with the base name", () => {
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Boxcar 1" }));
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box" }));
+        expect(NodeUtils.nextNumberedName(doc, "Box")).toBe("Box 1");
+    });
+
+    test("should number each base name independently", () => {
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box 1" }));
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "Box 2" }));
+        expect(NodeUtils.nextNumberedName(doc, "Extrude")).toBe("Extrude 1");
+    });
+
+    test("should treat regex-special characters in the base name literally", () => {
+        doc.modelManager.addNode(new FolderNode({ document: doc, name: "C(1) 1" }));
+        expect(NodeUtils.nextNumberedName(doc, "C(1)")).toBe("C(1) 2");
+    });
+
+    test("should fall back to '1' when the document's modelManager has no findNodes", () => {
+        const bareDoc = { modelManager: {} } as unknown as IDocument;
+        expect(NodeUtils.nextNumberedName(bareDoc, "Box")).toBe("Box 1");
+    });
+});
+
 describe("node utils", () => {
     describe("NodeUtils Class Tests", () => {
         let doc: IDocument;

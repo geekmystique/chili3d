@@ -2,49 +2,42 @@
 // See LICENSE file in the project root for full license information.
 
 import {
+    type CommandKeys,
     GeometryUtils,
     type I18nKeys,
-    type IDocument,
     type IEdge,
     type IShape,
     type IWire,
-    ParameterShapeNode,
     Precision,
     Result,
     ShapeTypes,
     serializable,
-    serialize,
     XYZ,
 } from "@chili3d/core";
+import { SourceListShapeNode } from "./sourceListShapeNode";
 
-export interface FaceOptions {
-    document: IDocument;
-    shapes: IEdge[] | IWire[];
-}
-
+/**
+ * Holds references to the edge/wire node ids that bound this face, rather
+ * than baked edge/wire shapes. Editing a referenced node's own parameters
+ * recomputes this node. The referenced nodes are hidden, not deleted, by
+ * ConvertToFace, so the references keep resolving.
+ */
 @serializable()
-export class FaceNode extends ParameterShapeNode {
+export class FaceNode extends SourceListShapeNode {
+    protected readonly errorLabel = "Face";
+
     override display(): I18nKeys {
         return "body.face";
     }
 
-    @serialize()
-    get shapes(): IEdge[] | IWire[] {
-        return this.getPrivateValue("shapes");
-    }
-    set shapes(values: IEdge[] | IWire[]) {
-        this.setPropertyEmitShapeChanged("shapes", values);
+    override get editCommandKey(): CommandKeys {
+        return "modify.faceEdit";
     }
 
-    constructor(options: FaceOptions) {
-        super(options);
-        this.setPrivateValue("shapes", options.shapes);
-    }
-
-    private getWires(): IWire[] {
+    private static getWires(shapes: IShape[]): IWire[] {
         const wires: IWire[] = [];
         const edges: IEdge[] = [];
-        for (const shape of this.shapes) {
+        for (const shape of shapes) {
             if (shape.shapeType === ShapeTypes.wire) {
                 if (shape.isClosed()) {
                     wires.push(shape as IWire);
@@ -99,10 +92,10 @@ export class FaceNode extends ParameterShapeNode {
         return a.some((p1) => b.some((p2) => p1.distanceTo(p2) < Precision.Distance));
     }
 
-    override generateShape(): Result<IShape> {
-        if (this.shapes.length === 0) return Result.err("No shapes to create face");
+    protected override combineShapes(shapes: IShape[]): Result<IShape> {
+        if (shapes.length === 0) return Result.err("No shapes to create face");
 
-        const wires = this.getWires();
+        const wires = FaceNode.getWires(shapes);
         FaceNode.orientOuterWire(wires[0]);
         return shapeFactory.face(wires);
     }

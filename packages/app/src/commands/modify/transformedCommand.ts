@@ -13,13 +13,19 @@ import {
     MultistepCommand,
     PubSub,
     property,
+    ShapeNode,
+    spliceIntoReferenceChain,
     Transaction,
     VisualConfig,
     type VisualNode,
     type XYZ,
 } from "@chili3d/core";
+import { type PlacementKind, PlacementNode } from "../../bodys/placement";
 
 export abstract class TransformedCommand extends MultistepCommand {
+    /** Which edit command a PlacementNode created by this command re-opens on double-click. */
+    protected abstract get placementKind(): PlacementKind;
+
     protected models?: VisualNode[];
     protected positions?: number[];
 
@@ -84,19 +90,58 @@ export abstract class TransformedCommand extends MultistepCommand {
         Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
             const transform = this.transfrom(this.stepDatas.at(-1)!.point!);
 
-            if (this.isClone) {
-                this.models?.forEach((x) => {
+            this.models?.forEach((x) => {
+                if (x instanceof ShapeNode) {
+                    this.applyToShapeNode(x, transform);
+                } else if (this.isClone) {
                     const clone = x.clone();
                     clone.transform = x.transform.multiply(transform);
                     x.parent?.insertAfter(x, clone);
-                });
-            } else {
-                this.models?.forEach((x) => {
+                } else {
                     x.transform = x.transform.multiply(transform);
-                });
-            }
+                }
+            });
 
             this.document.visual.update();
         });
+    }
+
+    /**
+     * A ShapeNode target becomes a live PlacementNode referencing it, rather
+     * than a baked shape with its own transform mutated in place - so the
+     * move/rotate/mirror shows up as its own timeline step, stays reversible,
+     * and keeps resolving if the base node's own parameters change later.
+     * isClone leaves the base node visible (the placed copy sits alongside
+     * it); otherwise the base is hidden and spliced into the reference chain,
+     * matching Boolean/Extrude/etc.
+     */
+    private applyToShapeNode(node: ShapeNode, transform: Matrix4): void {
+        const placement = new PlacementNode({
+            document: this.document,
+            baseNodeId: node.id,
+            kind: this.placementKind,
+            delta: transform,
+        });
+        // Keep the base's material, but not its name - this is a new feature
+        // entering the timeline as its own step (see the class doc comment),
+        // so it keeps the numbered "Placement N" name PlacementNode's own
+        // constructor already assigned it, rather than the base's own name
+        // (confusing once the base is hidden - the placement would look like
+        // a second copy of the object it moved, not a feature of it).
+        placement.materialId = node.materialId;
+
+        if (!placement.shape.isOk) {
+            PubSub.default.pub("showToast", "error.default:{0}", placement.shape.error);
+            placement.dispose();
+            return;
+        }
+
+        const container = node.parent ?? this.document.modelManager.rootNode;
+        container.insertAfter(node, placement);
+
+        if (!this.isClone) {
+            node.visible = false;
+            spliceIntoReferenceChain(this.document, node, placement);
+        }
     }
 }

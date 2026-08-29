@@ -1,8 +1,19 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import { Matrix4, PubSub, Result, type ShapeType, ShapeTypes } from "@chili3d/core";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "@rstest/core";
+import {
+    EditableShapeNode,
+    type IDocument,
+    type IShape,
+    Matrix4,
+    PubSub,
+    Result,
+    type ShapeType,
+    ShapeTypes,
+    SnapEventHandler,
+    XYZ,
+} from "@chili3d/core";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, rs, test } from "@rstest/core";
 import { ChamferCommand } from "../../../src/commands/modify/chamfer";
 import {
     ensureGlobalStubApp,
@@ -21,23 +32,26 @@ beforeAll(() => {
 });
 afterAll(() => restoreApp());
 
-function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType } = {}) {
+function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType; liveNode?: boolean } = {}) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
-    const solidNode = {
-        name: "solid0",
-        document: doc,
-        shape: { value: shape },
-        transform: Matrix4.identity(),
-        materialId: "mat-1",
-        parent,
-        previousSibling: undefined,
-        nextSibling: undefined,
-    };
+    const solidNode: any = opts.liveNode
+        ? liveSolidNode(doc, shape as unknown as IShape, parent)
+        : {
+              name: "solid0",
+              document: doc,
+              shape: { value: shape },
+              transform: Matrix4.identity(),
+              materialId: "mat-1",
+              parent,
+              previousSibling: undefined,
+              nextSibling: undefined,
+          };
 
     const step = shapeStepResult(
         edges.map((index) => ({ shape: { index, parent: body } as Partial<MockShape>, node: solidNode })),
@@ -45,6 +59,19 @@ function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType } = {
 
     seedStepDatas(cmd, [step]);
     return { cmd, doc, parent, shape, body, solidNode };
+}
+
+/**
+ * A real EditableShapeNode standing in for the chamfer target on the 3D-body
+ * path: EdgeCornerNode is a ReferenceShapeNode, so it resolves its base node
+ * through `document.modelManager.findNode` rather than the passed-in object,
+ * and needs a real `instanceof ShapeNode` to satisfy that lookup.
+ */
+function liveSolidNode(doc: IDocument, shape: IShape, parent: TrackingParent) {
+    const node = new EditableShapeNode({ document: doc, name: "solid0", shape, materialId: "mat-1" });
+    node.parent = parent;
+    (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) => [node].find(predicate);
+    return node;
 }
 
 /** A parent shape of the given type whose `isPartner` only matches itself. */
@@ -131,6 +158,7 @@ function buildWireCommand(opts: { swap?: boolean } = {}) {
 function buildStandaloneEdgesCommand(count: 1 | 2 = 2) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const body = mockShape({ shapeType: ShapeTypes.edge });
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
@@ -188,16 +216,39 @@ describe("ChamferCommand", () => {
 
     test("length setter should update property", () => {
         const cmd = new ChamferCommand();
+        const { doc } = wireCommand(cmd);
+        (doc as any).application = { activeView: {} };
         cmd.length = 20;
         expect(cmd.length).toBe(20);
     });
 
-    test("getSteps should return a single edge-selection step", () => {
+    test("getSteps should return the edge-selection step followed by a distance-drag step", () => {
         const cmd = new ChamferCommand();
         const steps = (cmd as any).getSteps();
-        expect(steps.length).toBe(1);
+        expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
         expect(steps[0].options.multiple).toBe(true);
+        expect(typeof steps[0].options.afterSelection).toBe("function");
+    });
+
+    describe("queueValueOnExplicitConfirm", () => {
+        test('should queue the current length when the edge pick finished via Enter/checkmark ("confirm")', () => {
+            const cmd = new ChamferCommand();
+            (cmd as any).controller = { result: { status: "success", message: "confirm" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBe(String(cmd.length));
+        });
+
+        test("should not queue anything when the edge pick finished via Ctrl (no drag skip)", () => {
+            const cmd = new ChamferCommand();
+            (cmd as any).controller = { result: { status: "success" } };
+
+            (cmd as any).queueValueOnExplicitConfirm();
+
+            expect((cmd as any).pendingTypedValue).toBeUndefined();
+        });
     });
 
     describe("edgeFilter", () => {
@@ -367,28 +418,32 @@ describe("ChamferCommand", () => {
     });
 
     describe("executeMainTask", () => {
-        test("should add the chamfered EditableShapeNode and remove the original node", () => {
-            const { cmd, parent } = buildChamferCommand([3, 7]);
+        test("should add the chamfer as a live EdgeCornerNode and hide the original", () => {
+            const { cmd, parent, solidNode } = buildChamferCommand([3, 7], { liveNode: true });
 
             (cmd as any).executeMainTask();
 
-            expect(parent.added).toHaveLength(1);
-            expect(parent.removed).toHaveLength(1);
+            // inserted right after solidNode, not appended, so it lands at its
+            // logical spot in the tree/timeline.
+            expect(parent.insertedAfter).toHaveLength(1);
+            expect(parent.removed).toHaveLength(0); // hidden, not removed - the reference needs it
 
-            const added = parent.added[0] as any;
-            expect(added.name).toBe("solid0");
-            expect(added.materialId).toBe("mat-1");
+            const { target, node: added } = parent.insertedAfter[0] as any;
+            expect(target).toBe(solidNode);
+            expect(added.baseNodeId).toBe(solidNode.id);
+            expect(added.edgeIndexes).toEqual([3, 7]);
+            expect(solidNode.visible).toBe(false);
         });
 
         test("should fall back to rootNode when the original node has no parent", () => {
-            const { cmd, solidNode } = buildChamferCommand([1]);
+            const { cmd, solidNode } = buildChamferCommand([1], { liveNode: true });
             (solidNode as any).parent = undefined;
 
             expect(() => (cmd as any).executeMainTask()).not.toThrow();
         });
 
         test("should pass the configured length through to shapeFactory.chamfer", () => {
-            const { cmd } = buildChamferCommand([2]);
+            const { cmd } = buildChamferCommand([2], { liveNode: true });
             cmd.length = 8;
 
             const { calls, restore } = captureFactory();
@@ -524,7 +579,7 @@ describe("ChamferCommand", () => {
         });
 
         test("should report the factory error and keep the original node on failure", () => {
-            const { cmd, parent } = buildChamferCommand([3, 7]);
+            const { cmd, parent, solidNode } = buildChamferCommand([3, 7], { liveNode: true });
 
             const factory = captureFactory({ chamfer: () => Result.err("boom") });
             const pubsub = capturePubSub();
@@ -535,7 +590,7 @@ describe("ChamferCommand", () => {
                     true,
                 );
                 expect(parent.added).toHaveLength(0);
-                expect(parent.removed).toHaveLength(0);
+                expect(solidNode.visible).toBe(true);
             } finally {
                 pubsub.restore();
                 factory.restore();
@@ -571,7 +626,10 @@ describe("ChamferCommand", () => {
         });
 
         test("should treat a compound of solids as 3D", () => {
-            const { cmd, body } = buildChamferCommand([3, 7], { bodyType: ShapeTypes.compound });
+            const { cmd, body } = buildChamferCommand([3, 7], {
+                bodyType: ShapeTypes.compound,
+                liveNode: true,
+            });
             cmd.length = 6;
             (body as any).findSubShapes = (type: ShapeType) =>
                 type === ShapeTypes.solid ? [mockShape({ shapeType: ShapeTypes.solid })] : [];
@@ -587,6 +645,181 @@ describe("ChamferCommand", () => {
             } finally {
                 restore();
             }
+        });
+    });
+
+    describe("distance drag (getCornerValueStepData)", () => {
+        /** A shape carrying enough of edgesMeshPosition for `meshShape`'s preview path to not crash. */
+        function meshableShape(overrides: Partial<IShape> = {}) {
+            return mockShape({
+                edgesMeshPosition: () => ({ type: "edges", positions: [] }),
+                ...overrides,
+            } as any);
+        }
+
+        /** A straight edge from `start` to `end`, with real ends/curve/findAncestor so axis geometry can be computed. */
+        function straightEdgeShape(start: XYZ, end: XYZ, overrides: Partial<IShape> = {}) {
+            const dir = end.sub(start);
+            return mockShape({
+                shapeType: ShapeTypes.edge,
+                firstParameter: () => 0,
+                lastParameter: () => 1,
+                ends: () => [start, end] as [XYZ, XYZ],
+                curve: {
+                    value: (u: number) => start.add(dir.multiply(u)),
+                    d1: (u: number) => ({ point: start.add(dir.multiply(u)), vec: dir }),
+                },
+                findAncestor: () => [],
+                ...overrides,
+            } as any);
+        }
+
+        test("solid edge: dragging along the axis previews shapeFactory.chamfer and updates length", () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 2,
+                parent: body,
+            } as Partial<IShape>);
+
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+            const data = (cmd as any).getCornerValueStepData();
+            // Enter with no drag/type at all should accept the current
+            // length, not cancel.
+            expect(data.acceptOnEnter?.()).toBe(cmd.length);
+            // Plain mouse movement must not silently change the length -
+            // only an explicit Ctrl+move does.
+            expect(data.requireCtrlToDrag).toBe(true);
+
+            const { calls, restore } = captureFactory({ chamfer: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(7));
+                const preview = data.preview(dragged);
+
+                expect(cmd.length).toBeCloseTo(7);
+                expect(calls["chamfer"]).toHaveLength(1);
+                expect(calls["chamfer"][0][1]).toEqual([2]);
+                expect(calls["chamfer"][0][2]).toBeCloseTo(7);
+                expect(preview).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("face corner: previews chamfer2d", () => {
+            const { cmd, body } = buildChamferCommand([0, 1], { bodyType: ShapeTypes.face });
+            const sel0 = (cmd as any).stepDatas[0].shapes[0];
+            const sel1 = (cmd as any).stepDatas[0].shapes[1];
+            sel0.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 1, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            sel1.shape = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 0, y: 1, z: 0 }), {
+                index: 1,
+                parent: body,
+            } as Partial<IShape>);
+
+            const data = (cmd as any).getCornerValueStepData();
+
+            const { calls, restore } = captureFactory({ chamfer2d: () => Result.ok(meshableShape()) });
+            try {
+                const dragged = data.point.add(data.direction.multiply(2));
+                data.preview(dragged);
+
+                expect(cmd.length).toBeCloseTo(2);
+                expect(calls["chamfer2d"]).toHaveLength(1);
+                expect(calls["chamfer2d"][0][0]).toBe(body);
+            } finally {
+                restore();
+            }
+        });
+
+        test("typing a new value should apply it through the active SnapEventHandler", () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc as any).application = { activeView: {} };
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            cmd.length = 15;
+
+            expect(cmd.length).toBe(15);
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
+        });
+
+        test("typing a value while still picking edges applies it the instant the drag step starts, with no drag needed", async () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet, so this can
+            // only queue the value, not apply it.
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            cmd.length = 15;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            // The drag step starting: EdgeCornerCommand.getSteps calls this to
+            // build the LengthAtAxisStep's data, before picker.pickAsync (which
+            // assigns the real handler) has even run - matching production order.
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
+        });
+
+        test("pressing Enter without changing the suggested default still finishes the command once the drag step starts", async () => {
+            const cmd = new ChamferCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet. Length is
+            // already 10 (the default), so this is a same-value "no-op" write -
+            // it must still queue, not silently do nothing.
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            const suggestedDefault = cmd.length;
+            cmd.length = suggestedDefault;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("10"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "10");
         });
     });
 });

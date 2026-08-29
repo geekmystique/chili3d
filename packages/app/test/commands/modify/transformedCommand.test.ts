@@ -4,23 +4,28 @@
 import {
     BoundingBox,
     ComponentNode,
+    EditableShapeNode,
     GeometryNode,
     Matrix4,
     MeshNode,
     MultistepCommand,
     PubSub,
+    Result,
     VisualConfig,
     XYZ,
 } from "@chili3d/core";
-import { afterAll, beforeAll, describe, expect, rs, test } from "@rstest/core";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, rs, test } from "@rstest/core";
+import { PlacementNode } from "../../../src/bodys/placement";
 import { Move } from "../../../src/commands/modify/move";
 import {
     ensureGlobalStubApp,
     makeParent,
+    mockShape,
     mockVisualNode,
     pointStepResult,
     seedStepDatas,
     stubTransactionRun,
+    type TrackingParent,
     wireCommand,
 } from "../commandTestUtils";
 
@@ -368,6 +373,85 @@ describe("TransformedCommand (via Move)", () => {
                 expect(updateSpy).toHaveBeenCalled();
             } finally {
                 restore();
+            }
+        });
+    });
+
+    describe("executeMainTask with a ShapeNode target", () => {
+        let restoreTx: () => void;
+        beforeEach(() => {
+            restoreTx = stubTransactionRun();
+        });
+        afterEach(() => restoreTx());
+
+        function buildShapeNodeTarget() {
+            const cmd = new Move();
+            const { doc } = wireCommand(cmd);
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const node = new EditableShapeNode({
+                document: doc,
+                name: "base",
+                shape: mockShape() as any,
+            });
+            node.parent = parent as any;
+            (doc.modelManager as any).findNode = (predicate: (n: unknown) => boolean) =>
+                [node].find(predicate);
+            (cmd as any).models = [node];
+            seedStepDatas(cmd, [
+                pointStepResult({ point: XYZ.zero }),
+                pointStepResult({ point: new XYZ({ x: 10, y: 20, z: 30 }) }),
+            ]);
+            return { cmd, doc, parent, node };
+        }
+
+        test("should create a live PlacementNode instead of mutating the node's own transform", () => {
+            const { cmd, parent, node } = buildShapeNodeTarget();
+
+            (cmd as any).executeMainTask();
+
+            expect(parent.insertedAfter).toHaveLength(1);
+            const { target, node: created } = parent.insertedAfter[0] as any;
+            expect(target).toBe(node);
+            expect(created).toBeInstanceOf(PlacementNode);
+            expect((created as PlacementNode).baseNodeId).toBe(node.id);
+            expect((created as PlacementNode).kind).toBe("move");
+            // The feature keeps its own numbered "Placement N" name - not the
+            // hidden base's name, which would make it look like a second copy
+            // of the object it moved, rather than a feature of it.
+            expect(created.name).not.toBe(node.name);
+        });
+
+        test("should hide the base node and splice it into the reference chain when not cloning", () => {
+            const { cmd, parent, node } = buildShapeNodeTarget();
+
+            (cmd as any).executeMainTask();
+
+            expect(node.visible).toBe(false);
+            const created = parent.insertedAfter[0].node as PlacementNode;
+            expect(created.visible).toBe(true);
+        });
+
+        test("should leave the base node visible when isClone is true", () => {
+            const { cmd, node } = buildShapeNodeTarget();
+            cmd.isClone = true;
+
+            (cmd as any).executeMainTask();
+
+            expect(node.visible).toBe(true);
+        });
+
+        test("should report a factory error via showToast and not insert the placement when generateShape fails", () => {
+            const { cmd, parent } = buildShapeNodeTarget();
+            const pubSpy = rs.spyOn(PubSub.default, "pub").mockImplementation(() => {});
+            const original = PlacementNode.prototype.generateShape;
+            PlacementNode.prototype.generateShape = () => Result.err("boom");
+            try {
+                (cmd as any).executeMainTask();
+                expect(pubSpy).toHaveBeenCalledWith("showToast", "error.default:{0}", "boom");
+                expect(parent.insertedAfter).toHaveLength(0);
+            } finally {
+                PlacementNode.prototype.generateShape = original;
+                pubSpy.mockRestore();
             }
         });
     });

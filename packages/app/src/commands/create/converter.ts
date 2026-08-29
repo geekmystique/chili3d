@@ -5,26 +5,24 @@ import {
     AsyncController,
     CancelableCommand,
     command,
-    EditableShapeNode,
-    type GeometryNode,
     type IDocument,
-    type IEdge,
-    type IFace,
     type INode,
-    type IShape,
     type IShapeFilter,
-    type IShell,
     PubSub,
+    type ReferenceShapeNode,
     Result,
     SelectNodeStep,
-    type ShapeNode,
+    ShapeNode,
     ShapeNodeFilter,
     ShapeTypes,
+    spliceIntoReferenceChain,
     Transaction,
 } from "@chili3d/core";
+import { CompoundNode } from "../../bodys/compound";
 import { FaceNode } from "../../bodys/face";
+import { ShellNode } from "../../bodys/shell";
+import { SolidNode } from "../../bodys/solid";
 import { WireNode } from "../../bodys/wire";
-import { repairShape } from "../modify";
 
 abstract class ConvertCommand extends CancelableCommand {
     async executeAsync(): Promise<void> {
@@ -38,19 +36,30 @@ abstract class ConvertCommand extends CancelableCommand {
             if (!node.isOk) {
                 PubSub.default.pub("showToast", "error.default:{0}", node.error);
             } else {
-                this.document.modelManager.rootNode.add(node.value);
-                models.forEach((x) => x.parent?.remove(x));
+                // Insert right after the last consumed node so the conversion lands
+                // at its logical spot in the tree/timeline, not always at the end.
+                const anchor = models[models.length - 1];
+                if (anchor.parent === this.document.modelManager.rootNode) {
+                    this.document.modelManager.rootNode.insertAfter(anchor, node.value);
+                } else {
+                    this.document.modelManager.rootNode.add(node.value);
+                }
+                // Hide rather than delete the consumed nodes - the new node keeps a
+                // live reference to them, so deleting would break that reference.
+                models.forEach((x) => {
+                    x.visible = false;
+                    if (x instanceof ShapeNode) spliceIntoReferenceChain(this.document, x, node.value);
+                });
                 this.document.visual.update();
                 PubSub.default.pub("showToast", "toast.success");
             }
         });
     }
 
-    protected abstract create(document: IDocument, models: INode[]): Result<GeometryNode>;
+    protected abstract create(document: IDocument, models: INode[]): Result<ReferenceShapeNode>;
     protected shapeFilter(): IShapeFilter {
         return {
-            allow: (shape: IShape) =>
-                shape.shapeType === ShapeTypes.edge || shape.shapeType === ShapeTypes.wire,
+            allow: (shape) => shape.shapeType === ShapeTypes.edge || shape.shapeType === ShapeTypes.wire,
         };
     }
 
@@ -89,20 +98,11 @@ abstract class ConvertCommand extends CancelableCommand {
     icon: "icon-toPoly",
 })
 export class ConvertToWire extends ConvertCommand {
-    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const edges = models
-            .map((x) => x.shape.value.transformedMul(x.worldTransform()))
-            .flatMap((s) => {
-                if (s.shapeType === ShapeTypes.edge) {
-                    return [s];
-                } else if (s.shapeType === ShapeTypes.wire) {
-                    return s.findSubShapes(ShapeTypes.edge);
-                }
-                return [];
-            }) as IEdge[];
-        const wireBody = new WireNode({ document, edges });
+    protected override create(document: IDocument, models: ShapeNode[]): Result<ReferenceShapeNode> {
+        const wireBody = new WireNode({ document, sourceNodeIds: models.map((x) => x.id) });
         const shape = wireBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        wireBody.shape = shape;
 
         return Result.ok(wireBody);
     }
@@ -113,13 +113,13 @@ export class ConvertToWire extends ConvertCommand {
     icon: "icon-toFace",
 })
 export class ConvertToFace extends ConvertCommand {
-    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const edges = models.map((x) => x.shape.value.transformedMul(x.worldTransform())) as IEdge[];
-        const wireBody = new FaceNode({ document, shapes: edges });
-        const shape = wireBody.generateShape();
+    protected override create(document: IDocument, models: ShapeNode[]): Result<ReferenceShapeNode> {
+        const faceBody = new FaceNode({ document, sourceNodeIds: models.map((x) => x.id) });
+        const shape = faceBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        faceBody.shape = shape;
 
-        return Result.ok(wireBody);
+        return Result.ok(faceBody);
     }
 }
 
@@ -130,18 +130,17 @@ export class ConvertToFace extends ConvertCommand {
 export class ConvertToShell extends ConvertCommand {
     protected override shapeFilter(): IShapeFilter {
         return {
-            allow: (shape: IShape) => shape.shapeType === ShapeTypes.face,
+            allow: (shape) => shape.shapeType === ShapeTypes.face,
         };
     }
 
-    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const faces = models.map((x) => x.shape.value.transformedMul(x.worldTransform())) as IFace[];
-        const shape = shapeFactory.shell(faces);
-        faces.forEach((x) => x.dispose());
+    protected override create(document: IDocument, models: ShapeNode[]): Result<ReferenceShapeNode> {
+        const shellBody = new ShellNode({ document, sourceNodeIds: models.map((x) => x.id) });
+        const shape = shellBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        shellBody.shape = shape;
 
-        const shell = new EditableShapeNode({ document, name: "shell", shape });
-        return Result.ok(shell);
+        return Result.ok(shellBody);
     }
 }
 
@@ -152,20 +151,17 @@ export class ConvertToShell extends ConvertCommand {
 export class ConvertToSolid extends ConvertCommand {
     protected override shapeFilter(): IShapeFilter {
         return {
-            allow: (shape: IShape) => shape.shapeType === ShapeTypes.shell,
+            allow: (shape) => shape.shapeType === ShapeTypes.shell,
         };
     }
 
-    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const faces = models.map((x) => x.shape.value.transformedMul(x.worldTransform())) as IShell[];
-        const shape = shapeFactory.solid(faces);
-        faces.forEach((x) => x.dispose());
+    protected override create(document: IDocument, models: ShapeNode[]): Result<ReferenceShapeNode> {
+        const solidBody = new SolidNode({ document, sourceNodeIds: models.map((x) => x.id) });
+        const shape = solidBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        solidBody.shape = shape;
 
-        const repaired = repairShape(shape.value, 1e-7);
-        shape.value.dispose();
-        const solid = new EditableShapeNode({ document, name: "solid", shape: repaired });
-        return Result.ok(solid);
+        return Result.ok(solidBody);
     }
 }
 
@@ -180,13 +176,12 @@ export class ConvertToCompound extends ConvertCommand {
         };
     }
 
-    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const shapes = models.map((x) => x.shape.value.transformedMul(x.worldTransform()));
-        const shape = shapeFactory.combine(shapes);
-        shapes.forEach((x) => x.dispose());
+    protected override create(document: IDocument, models: ShapeNode[]): Result<ReferenceShapeNode> {
+        const compoundBody = new CompoundNode({ document, sourceNodeIds: models.map((x) => x.id) });
+        const shape = compoundBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);
+        compoundBody.shape = shape;
 
-        const compound = new EditableShapeNode({ document, name: "compound", shape });
-        return Result.ok(compound);
+        return Result.ok(compoundBody);
     }
 }
