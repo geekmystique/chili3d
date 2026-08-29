@@ -14,8 +14,28 @@ export class FilletCommand extends EdgeCornerCommand {
         return this.getPrivateValue("radius", 10);
     }
 
+    /**
+     * Visible from the start of the command, defaulting to 10 - typing an
+     * exact value here applies it immediately if the radius-drag step (see
+     * EdgeCornerCommand.getSteps) is already live, or queues it for the
+     * instant that step starts otherwise, so typing while still picking
+     * edges never requires touching the drag step at all.
+     */
     set radius(value: number) {
+        const changed = this.setProperty("radius", value);
+        this.applyOrQueueTypedValue(value, changed);
+    }
+
+    protected override get cornerValue(): number {
+        return this.radius;
+    }
+
+    protected override set cornerValue(value: number) {
         this.setProperty("radius", value);
+    }
+
+    protected override get cornerValuePromptKey() {
+        return "prompt.pickRadius" as const;
     }
 
     protected override applyToBody(shape: IShape, edgeIndexes: number[]): Result<IShape> {

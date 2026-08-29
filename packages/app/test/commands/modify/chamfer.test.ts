@@ -24,6 +24,7 @@ afterAll(() => restoreApp());
 function buildChamferCommand(edges: number[], opts: { bodyType?: ShapeType } = {}) {
     const cmd = new ChamferCommand();
     const { doc } = wireCommand(cmd);
+    (doc as any).application = { activeView: {} };
 
     const shape = mockShape();
     const body = mockShape({ shapeType: opts.bodyType ?? ShapeTypes.solid });
@@ -188,14 +189,16 @@ describe("ChamferCommand", () => {
 
     test("length setter should update property", () => {
         const cmd = new ChamferCommand();
+        const { doc } = wireCommand(cmd);
+        (doc as any).application = { activeView: {} };
         cmd.length = 20;
         expect(cmd.length).toBe(20);
     });
 
-    test("getSteps should return a single edge-selection step", () => {
+    test("getSteps should return the edge-selection step followed by a distance-drag step", () => {
         const cmd = new ChamferCommand();
         const steps = (cmd as any).getSteps();
-        expect(steps.length).toBe(1);
+        expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
         expect(steps[0].options.multiple).toBe(true);
     });
