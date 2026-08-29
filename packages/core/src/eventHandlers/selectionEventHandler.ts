@@ -158,9 +158,22 @@ export abstract class SelectionHandler implements IEventHandler {
             }
             this.cleanHighlights();
             this.controller?.success(); // accept selection
+        } else if (event.key === "Control" && this.multiMode && this.hasAnySelection()) {
+            // Finish a multi-pick the moment Ctrl goes down, without needing a
+            // further click - e.g. a solid fillet's edges are already picked,
+            // and holding Ctrl drops straight into the radius-drag step.
+            this.cleanHighlights();
+            this.controller?.success();
         } else if (event.key === "Tab") {
             event.preventDefault();
             this.highlightNext(view);
         }
+    }
+
+    private hasAnySelection(): boolean {
+        return (
+            this.document.selection.getSelectedShapes().length > 0 ||
+            this.document.selection.getSelectedNodes().length > 0
+        );
     }
 }

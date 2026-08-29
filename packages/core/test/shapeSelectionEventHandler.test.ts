@@ -660,6 +660,56 @@ describe("SubshapeSelectionHandler", () => {
 
             expect(completed).toBe(true);
         });
+
+        test("should complete on Control keydown in multi mode once something is already selected", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            selection.getSelectedShapes = () => [createVisualShapeData()];
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(true);
+        });
+
+        test("should not complete on Control keydown when nothing is selected yet", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(false);
+        });
+
+        test("should not complete on Control keydown outside multi mode", () => {
+            const controller = new AsyncController();
+            let completed = false;
+            controller.onCompleted(() => {
+                completed = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({ controller });
+            selection.getSelectedShapes = () => [createVisualShapeData()];
+
+            handler.keyDown(view, { key: "Control" } as KeyboardEvent);
+
+            expect(completed).toBe(false);
+        });
     });
 
     describe("dispose", () => {
