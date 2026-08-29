@@ -134,6 +134,59 @@ describe("SnapLengthAtAxisHandler", () => {
             expect(handler.state).toBe("idle");
         });
     });
+
+    describe("Enter with acceptOnEnter", () => {
+        test("should finish the step with acceptOnEnter's value instead of cancelling", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+                acceptOnEnter: () => 10,
+            };
+            const view = createHandlerMockView();
+            let cancelled = false;
+            let succeeded = false;
+            controller.onCancelled(() => {
+                cancelled = true;
+            });
+            controller.onCompleted(() => {
+                succeeded = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            handler.keyDown(view, {
+                key: "Enter",
+                preventDefault: () => {},
+                stopImmediatePropagation: () => {},
+            } as unknown as KeyboardEvent);
+
+            expect(cancelled).toBe(false);
+            expect(succeeded).toBe(true);
+            expect(handler.state).toBe("completed");
+            expect(handler.snaped?.point).toEqual(new XYZ({ x: 10, y: 0, z: 0 }));
+        });
+
+        test("should still cancel on Enter when acceptOnEnter is not provided", () => {
+            const lengthData: LengthAtAxisSnapData = {
+                point: XYZ.zero,
+                direction: XYZ.unitX,
+            };
+            const view = createHandlerMockView();
+            let cancelled = false;
+            controller.onCancelled(() => {
+                cancelled = true;
+            });
+
+            const handler = new SnapLengthAtAxisHandler(document, controller, lengthData);
+            handler.keyDown(view, {
+                key: "Enter",
+                preventDefault: () => {},
+                stopImmediatePropagation: () => {},
+            } as unknown as KeyboardEvent);
+
+            expect(cancelled).toBe(true);
+            expect(handler.state).toBe("cancelled");
+        });
+    });
 });
 
 // ============================================================================

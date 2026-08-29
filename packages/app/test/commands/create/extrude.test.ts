@@ -386,6 +386,9 @@ describe("ExtrudeCommand", () => {
             expect(data.point.isEqualTo(XYZ.zero)).toBe(true);
             expect(data.direction.isEqualTo(XYZ.unitZ)).toBe(true);
             expect(typeof data.preview).toBe("function");
+            // Enter with no drag/type at all should accept the current
+            // length, not cancel.
+            expect(data.acceptOnEnter?.()).toBe(cmd.length);
         });
 
         test("preview should return [] when point is undefined", () => {

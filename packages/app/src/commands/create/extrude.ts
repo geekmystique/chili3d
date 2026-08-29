@@ -144,6 +144,11 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
                 }
                 return [this.meshCreatedShape("prism", shape, vec)];
             },
+            // Enter here (no click/drag, and never having focused the
+            // properties-panel field either) would otherwise cancel the whole
+            // command (SnapEventHandler's default) - accept the current
+            // length instead, same as clicking to confirm a drag at it.
+            acceptOnEnter: () => this.length,
         };
     };
 

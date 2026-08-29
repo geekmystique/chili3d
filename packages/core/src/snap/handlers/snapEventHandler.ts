@@ -252,9 +252,15 @@ export abstract class SnapEventHandler<D extends SnapData = SnapData> implements
             this._snaped = undefined;
             this.handleCancel();
         } else if (event.key === "Enter" || event.key === " ") {
-            // should cancel when enter or space keydown, and should not trigger HotKeyService
+            // should cancel when enter or space keydown, and should not trigger HotKeyService -
+            // unless the step opted into accepting its current/default value instead (see
+            // SnapData.acceptOnEnter), for a value that's already meaningful without a pick.
             event.preventDefault();
             event.stopImmediatePropagation();
+            if (this.data.acceptOnEnter) {
+                this.applyTypedInput(view, String(this.data.acceptOnEnter()));
+                return;
+            }
             this._snaped = undefined;
             this.handleCancel();
         } else {

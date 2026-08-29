@@ -421,6 +421,11 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
                 if (dist < Precision.Distance) return [];
                 return preview();
             },
+            // Enter here (no click/drag, and never having focused the
+            // properties-panel field either) would otherwise cancel the whole
+            // command (SnapEventHandler's default) - accept the current
+            // cornerValue instead, same as clicking to confirm a drag at it.
+            acceptOnEnter: () => this.cornerValue,
         };
     };
 

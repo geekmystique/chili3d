@@ -669,6 +669,9 @@ describe("ChamferCommand", () => {
 
             seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
             const data = (cmd as any).getCornerValueStepData();
+            // Enter with no drag/type at all should accept the current
+            // length, not cancel.
+            expect(data.acceptOnEnter?.()).toBe(cmd.length);
 
             const { calls, restore } = captureFactory({ chamfer: () => Result.ok(meshableShape()) });
             try {

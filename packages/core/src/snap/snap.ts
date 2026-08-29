@@ -22,6 +22,15 @@ export interface SnapData {
     beforeExecute?: () => void;
     afterExecute?: () => void;
     onKeyDown?: (key: KeyboardEvent, update: () => void) => void;
+    /**
+     * If provided, Enter/Space finishes the step with this value (the same
+     * as typing it and pressing Enter in a bound properties-panel field)
+     * instead of the default cancel - for a step whose current/default value
+     * is already meaningful on its own (e.g. a radius/length box visible
+     * from the start of the command), so accepting the suggestion doesn't
+     * require first clicking into that field.
+     */
+    acceptOnEnter?: () => number;
 }
 
 export type SnapType =
