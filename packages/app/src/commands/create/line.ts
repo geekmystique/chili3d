@@ -10,7 +10,6 @@ import {
     PointStep,
     Precision,
     property,
-    type SnapResult,
     type XYZ,
 } from "@chili3d/core";
 import { LineNode } from "../../bodys";
@@ -65,19 +64,6 @@ export class Line extends CreateCommand {
                 return this.stepDatas[0].point!.distanceTo(point) > Precision.Distance;
             },
             preview: this.linePreview,
-            // TEMP DIAGNOSTIC: also show the x/y offset from the start point
-            // (not just the straight-line distance) so grid snapping - which
-            // rounds x/y independently - can be visually confirmed even when
-            // dragging off-axis, where the diagonal distance itself is never
-            // a round number regardless of whether the point is grid-snapped.
-            prompt: (snaped: SnapResult) => {
-                const start = this.stepDatas[0].point!;
-                const plane = snaped.plane ?? snaped.view.workplane;
-                const vector = snaped.point!.sub(start);
-                const dx = vector.dot(plane.xvec);
-                const dy = vector.dot(plane.yvec);
-                return `dx ${dx.toFixed(2)}, dy ${dy.toFixed(2)}`;
-            },
         };
     };
 
