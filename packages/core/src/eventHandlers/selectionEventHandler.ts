@@ -130,7 +130,13 @@ export abstract class SelectionHandler implements IEventHandler {
             const count = this.select(view, event);
             this.cleanHighlights();
             view.update();
-            if (count > 0 && (!this.multiMode || this.canFinishSelection())) this.controller?.success();
+            // Ctrl+click finishes a multi-pick immediately with whatever was just
+            // selected, regardless of canFinishSelection() - an escape hatch for
+            // steps that otherwise need an explicit Enter/checkmark once enough
+            // has been picked (e.g. a solid fillet's unbounded edge selection).
+            if (count > 0 && (!this.multiMode || this.canFinishSelection() || event.ctrlKey)) {
+                this.controller?.success();
+            }
         }
         this.pointerEventMap.delete(event.pointerId);
     }

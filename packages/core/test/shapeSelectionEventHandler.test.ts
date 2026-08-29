@@ -513,6 +513,53 @@ describe("SubshapeSelectionHandler", () => {
             expect(successCalled).toBe(false);
         });
 
+        test("should complete in multi mode on Ctrl+click, even when canFinish returns false", () => {
+            const controller = new AsyncController();
+            let successCalled = false;
+            controller.onCompleted(() => {
+                successCalled = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            handler.canFinish = () => false;
+
+            const shapeData = createVisualShapeData();
+            view.detectShapes = () => [shapeData];
+            selection.setSelectedShapes = () => 1;
+
+            handler.pointerDown(view, createPointerEvent({ pointerId: 1 }));
+            handler.pointerMove(view, createPointerEvent({ pointerId: 1, buttons: 1 }));
+            handler.pointerUp(view, createPointerEvent({ pointerId: 1, ctrlKey: true }));
+
+            expect(successCalled).toBe(true);
+        });
+
+        test("should not complete on Ctrl+click when nothing was actually selected", () => {
+            const controller = new AsyncController();
+            let successCalled = false;
+            controller.onCompleted(() => {
+                successCalled = true;
+            });
+
+            const { handler, view, selection } = setupSubshapeSelectionHandler({
+                multiMode: true,
+                controller,
+            });
+            handler.canFinish = () => false;
+
+            view.detectShapes = () => [];
+            selection.setSelectedShapes = () => 0;
+
+            handler.pointerDown(view, createPointerEvent({ pointerId: 1 }));
+            handler.pointerMove(view, createPointerEvent({ pointerId: 1, buttons: 1 }));
+            handler.pointerUp(view, createPointerEvent({ pointerId: 1, ctrlKey: true }));
+
+            expect(successCalled).toBe(false);
+        });
+
         test("should pass the current selection to canFinish", () => {
             const controller = new AsyncController();
             const { handler, view, selection } = setupSubshapeSelectionHandler({
