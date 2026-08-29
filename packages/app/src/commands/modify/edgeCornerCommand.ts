@@ -177,12 +177,14 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
             edgeIndexes,
             value: this.cornerValue,
         });
-        // Keep the base's material and name - EdgeCornerNode's own constructor
-        // defaults both (materialId to the document's first material, name to
-        // a generic "Fillet"/"Chamfer"), same as replaceShapeNode does for the
-        // planar path below.
+        // Keep the base's material, but not its name - unlike replaceShapeNode
+        // below (which reshapes the SAME node identity in place), this is a
+        // new feature entering the timeline as its own step, so it keeps the
+        // numbered "Fillet N"/"Chamfer N" name EdgeCornerNode's own
+        // constructor already assigned it, rather than the base's own name
+        // (confusing once the base is hidden - the fillet would look like a
+        // second copy of the object it was cut from, not a feature of it).
         featureNode.materialId = node.materialId;
-        featureNode.name = node.name;
 
         if (!featureNode.shape.isOk) {
             PubSub.default.pub("displayError", featureNode.shape.error);

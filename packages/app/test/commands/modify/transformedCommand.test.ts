@@ -415,6 +415,10 @@ describe("TransformedCommand (via Move)", () => {
             expect(created).toBeInstanceOf(PlacementNode);
             expect((created as PlacementNode).baseNodeId).toBe(node.id);
             expect((created as PlacementNode).kind).toBe("move");
+            // The feature keeps its own numbered "Placement N" name - not the
+            // hidden base's name, which would make it look like a second copy
+            // of the object it moved, rather than a feature of it.
+            expect(created.name).not.toBe(node.name);
         });
 
         test("should hide the base node and splice it into the reference chain when not cloning", () => {

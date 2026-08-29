@@ -423,6 +423,12 @@ describe("FilletCommand", () => {
             expect(added.baseNodeId).toBe(solidNode.id);
             expect(added.edgeIndexes).toEqual([3, 7]);
             expect(solidNode.visible).toBe(false);
+            // The feature keeps its own numbered "Fillet N" name (assigned by
+            // EdgeCornerNode's own constructor) - not the hidden base's name,
+            // which would make it look like a second copy of the object it
+            // was cut from, rather than a feature of it, once the base (still
+            // named e.g. "Box 1") is hidden.
+            expect(added.name).not.toBe(solidNode.name);
         });
 
         test("should splice a downstream feature onto the new fillet when the base already has one", () => {
