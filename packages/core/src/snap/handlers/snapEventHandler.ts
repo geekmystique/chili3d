@@ -73,6 +73,8 @@ export abstract class SnapEventHandler<D extends SnapData = SnapData> implements
     }
 
     pointerMove(view: IView, event: PointerEvent): void {
+        if (this.data.requireCtrlToDrag && !event.ctrlKey) return;
+
         this._state = "snapping";
         this.removeTempVisuals();
         this.updateSnapPoint(view, event);

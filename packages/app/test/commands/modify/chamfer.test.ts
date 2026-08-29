@@ -672,6 +672,9 @@ describe("ChamferCommand", () => {
             // Enter with no drag/type at all should accept the current
             // length, not cancel.
             expect(data.acceptOnEnter?.()).toBe(cmd.length);
+            // Plain mouse movement must not silently change the length -
+            // only an explicit Ctrl+move does.
+            expect(data.requireCtrlToDrag).toBe(true);
 
             const { calls, restore } = captureFactory({ chamfer: () => Result.ok(meshableShape()) });
             try {

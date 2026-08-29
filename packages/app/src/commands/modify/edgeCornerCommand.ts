@@ -426,6 +426,10 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
             // command (SnapEventHandler's default) - accept the current
             // cornerValue instead, same as clicking to confirm a drag at it.
             acceptOnEnter: () => this.cornerValue,
+            // Plain mouse movement over the 3D view (looking around, say)
+            // must not silently change the radius/length - only an explicit
+            // Ctrl+move does.
+            requireCtrlToDrag: true,
         };
     };
 

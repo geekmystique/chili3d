@@ -41,6 +41,20 @@ describe("SnapEventHandler — base class behaviour", () => {
             expect(handler.state).toBe("snapping");
         });
 
+        test("should ignore pointerMove without Ctrl when requireCtrlToDrag is set", () => {
+            const handler = new PointSnapEventHandler(document, controller, { requireCtrlToDrag: true });
+            const view = createHandlerMockView();
+            handler.pointerMove(view, createPointerEvent({ ctrlKey: false } as any));
+            expect(handler.state).toBe("idle");
+        });
+
+        test("should still transition to snapping on pointerMove with Ctrl when requireCtrlToDrag is set", () => {
+            const handler = new PointSnapEventHandler(document, controller, { requireCtrlToDrag: true });
+            const view = createHandlerMockView();
+            handler.pointerMove(view, createPointerEvent({ ctrlKey: true } as any));
+            expect(handler.state).toBe("snapping");
+        });
+
         test("should transition to completed on pointerDown with snapped point", () => {
             const pointData: PointSnapData = {
                 featurePoints: [

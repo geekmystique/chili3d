@@ -733,6 +733,9 @@ describe("FilletCommand", () => {
             // Enter with no drag/type at all (never touched the properties
             // panel either) should accept the current radius, not cancel.
             expect(data.acceptOnEnter?.()).toBe(cmd.radius);
+            // Plain mouse movement must not silently change the radius -
+            // only an explicit Ctrl+move does.
+            expect(data.requireCtrlToDrag).toBe(true);
         });
 
         test("solid edge: dragging along the axis previews shapeFactory.fillet and updates radius", () => {

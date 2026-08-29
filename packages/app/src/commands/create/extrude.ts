@@ -149,6 +149,10 @@ export class ExtrudeCommand extends CreateFromSelectionCommand {
             // command (SnapEventHandler's default) - accept the current
             // length instead, same as clicking to confirm a drag at it.
             acceptOnEnter: () => this.length,
+            // Plain mouse movement over the 3D view (looking around, say)
+            // must not silently change the length - only an explicit
+            // Ctrl+move does.
+            requireCtrlToDrag: true,
         };
     };
 
