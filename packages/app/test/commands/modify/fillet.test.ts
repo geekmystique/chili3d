@@ -849,5 +849,39 @@ describe("FilletCommand", () => {
             }).not.toThrow();
             expect(cmd.radius).toBe(15);
         });
+
+        test("typing a value while still picking edges applies it the instant the drag step starts, with no drag needed", async () => {
+            const cmd = new FilletCommand();
+            const { doc } = wireCommand(cmd);
+            (doc as any).application = { activeView: {} };
+            // Still picking edges - no SnapEventHandler active yet, so this can
+            // only queue the value, not apply it (see the "do nothing" test above).
+            (doc.visual as any).eventHandler = { isEnabled: true } as any;
+            cmd.radius = 15;
+
+            const shape = mockShape();
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const solidNode = liveSolidNode(doc, shape as unknown as IShape, parent);
+            const body = mockShape({ shapeType: ShapeTypes.solid });
+            const edge = straightEdgeShape(new XYZ({ x: 0, y: 0, z: 0 }), new XYZ({ x: 10, y: 0, z: 0 }), {
+                index: 0,
+                parent: body,
+            } as Partial<IShape>);
+            seedStepDatas(cmd, [shapeStepResult([{ shape: edge, node: solidNode }])]);
+
+            // The drag step starting: EdgeCornerCommand.getSteps calls this to
+            // build the LengthAtAxisStep's data, before picker.pickAsync (which
+            // assigns the real handler) has even run - matching production order.
+            (cmd as any).getCornerValueStepData();
+
+            const applyTypedInput = rs.fn(() => Result.ok("15"));
+            const fakeHandler: any = { applyTypedInput };
+            Object.setPrototypeOf(fakeHandler, SnapEventHandler.prototype);
+            (doc.visual as any).eventHandler = fakeHandler;
+
+            await Promise.resolve(); // flush the queued microtask
+
+            expect(applyTypedInput).toHaveBeenCalledWith((doc as any).application.activeView, "15");
+        });
     });
 });

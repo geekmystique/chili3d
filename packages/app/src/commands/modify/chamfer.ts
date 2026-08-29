@@ -1,15 +1,7 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import {
-    command,
-    type IEdge,
-    type IFace,
-    type IShape,
-    property,
-    type Result,
-    SnapEventHandler,
-} from "@chili3d/core";
+import { command, type IEdge, type IFace, type IShape, property, type Result } from "@chili3d/core";
 import type { EdgeCornerOperateType } from "../../bodys/edgeCorner";
 import { EdgeCornerCommand } from "./edgeCornerCommand";
 
@@ -25,22 +17,19 @@ export class ChamferCommand extends EdgeCornerCommand {
 
     /**
      * Visible from the start of the command, defaulting to 10 - typing an
-     * exact value here applies it and finishes the distance-drag step
-     * (EdgeCornerCommand.getSteps) immediately, the same pattern as
-     * ExtrudeCommand.length/FilletCommand.radius. While the step is
-     * live-dragging, EdgeCornerCommand's preview callback keeps this in sync
-     * with the pointer via the cornerValue setter below, not this one, which
-     * would otherwise re-finish the step every move.
+     * exact value here applies it, the same pattern as
+     * ExtrudeCommand.length/FilletCommand.radius. While still picking edges,
+     * this queues the value for the instant the distance-drag step
+     * (EdgeCornerCommand.getSteps) starts, finishing it immediately with no
+     * drag needed; once that step is already live, finishes it right away
+     * instead. Either way, dragging keeps this in sync via the cornerValue
+     * setter below, not this one, which would otherwise re-finish the step
+     * every move.
      */
     set length(value: number) {
         const changed = this.setProperty("length", value);
         if (!changed) return;
-
-        const view = this.document.application.activeView;
-        const handler = this.document.visual.eventHandler;
-        if (view && handler instanceof SnapEventHandler) {
-            handler.applyTypedInput(view, String(value));
-        }
+        this.applyOrQueueTypedValue(value);
     }
 
     protected override get operateType(): EdgeCornerOperateType {

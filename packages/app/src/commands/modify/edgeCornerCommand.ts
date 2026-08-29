@@ -23,6 +23,7 @@ import {
     type ShapeNode,
     type ShapeType,
     ShapeTypes,
+    SnapEventHandler,
     spliceIntoReferenceChain,
     Transaction,
     type VisualShapeData,
@@ -137,6 +138,33 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
     /** The tip shown while dragging to set cornerValue - "input radius..." for Fillet, generic for Chamfer. */
     protected get cornerValuePromptKey(): I18nKeys {
         return "prompt.pickNextPoint";
+    }
+
+    /**
+     * A value typed into the radius/length box before the drag step has
+     * actually started (still picking edges) - applied the instant that
+     * step's SnapEventHandler exists (see getCornerValueStepData), instead
+     * of requiring the user to also interact with the drag step once it
+     * begins. Cleared once applied.
+     */
+    private pendingTypedValue?: string;
+
+    /**
+     * Called by the radius/length public setter each subclass exposes.
+     * While the drag step is already active, finishes it immediately with
+     * the typed value, exactly like clicking/releasing a drag. Otherwise
+     * (still picking edges) queues it for the instant the drag step starts,
+     * so typing an exact value and pressing Enter never requires touching
+     * the drag step at all.
+     */
+    protected applyOrQueueTypedValue(value: number): void {
+        const view = this.document.application.activeView;
+        const handler = this.document.visual.eventHandler;
+        if (view && handler instanceof SnapEventHandler) {
+            handler.applyTypedInput(view, String(value));
+        } else {
+            this.pendingTypedValue = String(value);
+        }
     }
 
     /** Apply the operation to the corner between two edges of a face. */
@@ -349,6 +377,27 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
 
     private readonly getCornerValueStepData = (): LengthAtAxisSnapData => {
         const { point, direction, preview } = this.buildDragContext();
+
+        if (this.pendingTypedValue !== undefined) {
+            const text = this.pendingTypedValue;
+            this.pendingTypedValue = undefined;
+            // The drag step's SnapEventHandler doesn't exist yet at this point
+            // (SnapStep.execute constructs it, then calls picker.pickAsync,
+            // right after this function returns) - pickAsync itself assigns
+            // document.visual.eventHandler and registers the controller's
+            // completion listener synchronously, before its own first real
+            // await, so a microtask queued here always runs after both are
+            // ready, letting applyTypedInput finish the step with no visible
+            // drag interaction at all.
+            queueMicrotask(() => {
+                const view = this.document.application.activeView;
+                const handler = this.document.visual.eventHandler;
+                if (view && handler instanceof SnapEventHandler) {
+                    handler.applyTypedInput(view, text);
+                }
+            });
+        }
+
         return {
             point,
             direction,
