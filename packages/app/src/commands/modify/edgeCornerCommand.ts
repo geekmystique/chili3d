@@ -8,6 +8,7 @@ import {
     type IFace,
     type IShape,
     type IShapeFilter,
+    type IStep,
     type ISubEdgeShape,
     MultistepCommand,
     PubSub,
@@ -31,7 +32,7 @@ const SUPPORTED_PARENT_TYPES: ShapeType[] = [...SOLID_PARENT_TYPES, ...PLANAR_PA
  * its content: containing a solid makes it 3D, otherwise (faces, wires or
  * edges inside) it is treated as 2D.
  */
-function isPlanarParent(parent: IShape): boolean {
+export function isPlanarParent(parent: IShape): boolean {
     if (PLANAR_PARENT_TYPES.includes(parent.shapeType)) return true;
     return parent.shapeType === ShapeTypes.compound && parent.findSubShapes(ShapeTypes.solid).length === 0;
 }
@@ -40,7 +41,7 @@ function isPlanarParent(parent: IShape): boolean {
  * The face an edge belongs to: the parent itself when it is a face, or the
  * containing face inside a compound; undefined for wire/edge parents.
  */
-function faceContaining(parent: IShape, sub: ISubEdgeShape): IFace | undefined {
+export function faceContaining(parent: IShape, sub: ISubEdgeShape): IFace | undefined {
     if (parent.shapeType === ShapeTypes.face) return parent as IFace;
     if (parent.shapeType !== ShapeTypes.compound) return undefined;
 
@@ -311,7 +312,7 @@ export abstract class EdgeCornerCommand extends MultistepCommand {
         return parent.shapeType !== ShapeTypes.edge && parent.isPartner(firstParent);
     }
 
-    protected override getSteps() {
+    protected override getSteps(): IStep[] {
         return [
             new SelectShapeStep(ShapeTypes.edge, "prompt.select.edges", {
                 multiple: true,
