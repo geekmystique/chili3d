@@ -60,7 +60,8 @@ export type SnapType =
     | "axis"
     | "feature"
     | "input"
-    | "angle";
+    | "angle"
+    | "grid";
 
 export interface SnapResult {
     view: IView;

@@ -17,6 +17,11 @@
             height: 12px;
         }
 
+        input.gridSize {
+            width: 32px;
+            height: auto;
+        }
+
         label {
             color: var(--foreground-color);
             font-size: 12px;
